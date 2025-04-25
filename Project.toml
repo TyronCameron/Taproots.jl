@@ -1,0 +1,10 @@
+name = "Taproots"
+uuid = "6cca9763-2e92-47b9-bf40-ccfe60418944"
+authors = ["TyronCameron <tyron.luke.cameron@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+GraphRecipes = "bd48cda9-67a9-57be-86fa-5b3c104eda73"
+Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
