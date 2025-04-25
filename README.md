@@ -72,8 +72,8 @@ Similar other options exist as well:
 ```julia
 preorder(my_data) # a preorder depth-first search 
 postorder(my_data) # this is topological order (or postorder depth-first search)
-topdown(my_data) # a level-order breadth-first search
-bottomup(my_data) # this is just the reverse of topdown. Warning, this one isn't lazy, but it can be nice too. 
+topdown(my_data) # a unique level-order breadth-first search
+bottomup(my_data) # this is just the reverse of topdown. Warning, this one isn't lazy, and it produces a vector to remind you of that. 
 
 leaves(my_data) # only look at the data that doesn't have children
 branches(my_data) # only look at the data that does have children
@@ -89,7 +89,7 @@ println(my_data_in_a_vec)
 Iterators.filter(x -> x isa String, leaves(my_data)) |> first # gives us the only string in the data structure ... "I don't even need to stick to one type ... but obviously a string has no children"
 ```
 
-Packages like this one are nice but you may be worried about interoperability with other nice (potentially more expansive) packages. So to make it all work out nicely, you can grab an adjacency matrix of your taproot whenever you want.
+Packages like this one are nice but you may be worried about interoperability with other (potentially more expansive) packages. So to make it all work out plainly, you can grab an adjacency matrix of your taproot whenever you want.
 
 ```julia
 adjacencymatrix(my_data) # gives us an adjacency matrix of 1s and 0s
@@ -117,13 +117,14 @@ followtrace(my_data, trace) # follows the index down to the pits to get you back
 ## Seeing the structure of your DAGs
 
 This package is interoperable with Term.jl for a CLI view and adds two very nice graph recipes to Plots.jl.  
+The data inside these can get cluttered, so it's recommended that you just overload `Base.show` for your custom types.
 
 ### Terminal visualisation
 
 ```julia
-using Term.Trees, AbstractTrees, Taproots
+using Term.Trees, Taproots
 
-AbstractTrees.children(x::MyType) = Taproots.children(x::MyType)
+@taptotree MyType
 
 print(Tree(my_data))
 ```
@@ -165,6 +166,7 @@ prune(f, taprootius) # deepcopy and then get rid of children which do not satisf
 leafprune!(f, taprootius) # get rid of leaves which do not satisfy f in place
 leafprune(f, taprootius) # deepcopy and then get rid of leaves which do not satisfy f in place
 
+# To be completely honest, I don't know why you'd ever want to do one of the following things, but hey, you can
 branchprune!(f, taprootius) # get rid of branches which do not satisfy f in place
 branchprune(f, taprootius) # deepcopy and then get rid of branches which do not satisfy f in place
 ```
