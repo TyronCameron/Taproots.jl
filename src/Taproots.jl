@@ -21,6 +21,16 @@ mutable struct Taproot
     children::Vector{Taproot}
 end
 Taproot(node) = Taproot(node, Taproot[Taproot(child) for child in children(node)])
+function Base.show(io::IO, taproot::Taproot) 
+    second = if isleaf(taproot) 
+        " (leaf)"
+    elseif length(taproot.children) == 1 
+        "+(1 child)"
+    else 
+        "+($(length(taproot.children)) children)"
+    end 
+    print(io, taproot.data, second)
+end 
 
 """
     tapin(sink::Function, node)
@@ -457,5 +467,7 @@ macro taptotree(my_type)
     Base.@eval import AbstractTrees
     quote AbstractTrees.children(x::$(my_type_esc)) = children(x) end
 end
+
+@taptotree Taproot
 
 end  # module Taproots
