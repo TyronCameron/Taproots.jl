@@ -186,6 +186,28 @@ back_to_the_future = tapout((data, children) -> MyType(data, children), taprooti
 
 In the example above, the children will automatically be coverted to `MyType` because the `sink` function we provided gets called recursively. 
 
+Taproots.jl also treats many base types like `Dict`, `Vector`, and `Expr` as taproots, and all other types as leaves.
+So you can do something like this 
+
+```julia
+dict = Dict(
+		:a => Dict(
+			:b => "nonsense_data",
+			:c => "more_data",
+		),
+		:d => "final_data"
+	)
+leafmap!(uppercase, dict)
+
+# or another case -- fixing our code 
+# change every `map` to `filter` in this code. 
+
+nums = 1:100
+expr = :(append!(map(x -> sqrt(x) == floor(sqrt(x)), nums), map(x -> x^(1/3) == floor(x^(1/3)), nums)) |> unique!)
+leafmap!(x -> x == :map ? :filter : x, expr)
+eval(expr)
+```
+
 ## Seeing the structure of your DAGs
 
 This package is interoperable with Term.jl for a CLI view and adds two very nice graph recipes to Plots.jl.  
