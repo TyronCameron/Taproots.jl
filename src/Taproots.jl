@@ -10,6 +10,7 @@ tapin, tapout, gettrace, followtrace, @sprout, bloom, @bloom
 """
 A Taproot is a single node that that can contain other Taproots. It can itself be contained in a parent Taproot.
 It is not the main point of this package, but provides a convenience to persist structure when doing maps or other transformations.
+It is also useful if you simply wish to build a data structure which obeys everything in Taproots.jl. 
 
 You can construct a Taproot either by: 
 - Taproot(data, children) where `data` is anything that you'd like to store in this node, and `children` is an iterable list of children 
