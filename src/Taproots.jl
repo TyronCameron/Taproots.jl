@@ -159,6 +159,8 @@ Taproots.setdata!(node::MyDataStructure, data) = (node.data = data; node)
 
 """
 setdata!(node, data) = error("Taproots.setdata(node::$(typeof(node)), data) not implemented!")
+setdata!(node::Symbol, data) = data
+setdata!(node::Expr, data) = data
 setdata!(node::Vector, data) = setchildren!(node, data)
 setdata!(node::Number, data) = data
 setdata!(node::AbstractString, data) = data

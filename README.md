@@ -7,7 +7,7 @@ For the purposes of this package, we'll consider any struct a Taproot if:
 
 - It has nested data which can be accessed from the struct in some way
 - That nested data forms a Directed Acyclic Graph (DAG) (warning, this package can't handle cycles)
-- "Distance" between nodes is not something we need to consider. 
+- "Distance" between nodes is not something we need to consider (unless it can be held in data of some kind). 
 
 That's right, no need to use some struct I created. You can use your own and traverse it a bunch of ways. 
 
@@ -26,7 +26,7 @@ You can turn your own structs into Taproots very quickly!
 ```julia
 using Taproots
 
-struct MyType 
+mutable struct MyType 
 	some_data
 	children
 end
@@ -34,7 +34,7 @@ end
 Taproots.children(x::MyType) = x.children 
 ```
 
-We're done! You already have access now to all the functionality in Taproots.jl. 
+We're done! You now have access to (almost) all the functionality in Taproots.jl. 
 
 Now let's say you create some nastily nested structure: 
 
@@ -60,7 +60,8 @@ for nested_data in postorder(my_data)
 end
 ```
 
-Or just the things which aren't wrappers:
+Or just the things at the edges:
+
 ```julia 
 for nested_data in leaves(my_data)
 	println(nested_data)
@@ -114,45 +115,34 @@ gettrace(child, my_data) # gets you an index trace of the first node which is eq
 followtrace(my_data, trace) # follows the index down to the pits to get you back whatever is in that index spot
 ```
 
-## Seeing the structure of your DAGs
 
-This package is interoperable with Term.jl for a CLI view and adds two very nice graph recipes to Plots.jl.  
-The data inside these can get cluttered, so it's recommended that you just overload `Base.show` for your custom types.
+## Modification of data and structure
 
-### Terminal visualisation
+Now there comes a time in every Taprootian's life when they yearn to modify their Taproots in place. And this is a dangerous topic because if you modify a Taproot in place, you might destroy the links to the children inadvertently. So for this purpose, you would need to add a few more functions. 
 
 ```julia
-using Term.Trees, Taproots
+Taproots.data(node::MyType) = node.some_data # provide a way to get any auxiliary data (other than children) that your node might contain. Can simply return `node` or nothing at all. Doing this will unlock sinking your type to a Taproots.Taproot. 
+Taproots.setdata!(node::MyType, data) = (node.some_data = data; node) # provide a way to set data in your node, if any. It can also do nothing. Once done, it must return `node`. This one unlocks `tapmap` and variants.
+Taproots.setchildren!(node::MyType, children::Vector) = (node.children = children; node) # provide a way to set children in your node. This one unlocks `prune` and variants. 
+````
 
-@taptotree MyType
-
-print(Tree(my_data))
-```
-
-### Plotting
-```julia
-using Plots
-
-plottree(my_data)
-plotdag(my_data)
-```
-
-# Modification of data and structure
-
-Now there comes a time in every Taprootian's life when they yearn to modify their Taproots in place. And this is a dangerous topic because if you modify a Taproot in place, you might destroy the links to the children inadvertently. So for this purpose, I created a sink to help out. 
-
-Now don't freak out. No need to learn a whole new framework and seven different structs. The point of a Taproot is to temporarily give you access to safe modification without destroying your own Taproot. 
-Of course, if you're comfortable enough with using the iterators above, you won't even need this section. I just think it's handy once in a while. 
+Now we get the *good* stuff. We can map every node's data while keeping the structure sparkly. 
 
 ```julia
-taprootius = Taproot(my_data)
-map!(x -> x isa String ? uppercase(x) : x, taprootius)
+tapmap(x -> x isa String ? uppercase(x) : x, my_data) # x comes straight from Taproots.data(node). Warning! x itself is not a node, and as such the strings inside MyType also get converted. Pretty awesome, but be careful!
 ```
+
+We can also get rid of all the nodes we don't like (... except the root, topmost node. Prune won't get rid of that one, and for good reason.)
+
+```julia
+prune(x -> x isa MyType, my_data) # x is the entire node
+```
+
 There are similar handy functions such as:
 
 ```julia
-map!(f, taprootius) # modify all nodes in place
-map(f, taprootius) # deepcopy and then modify all nodes in place
+tapmap!(f, taprootius) # modify all nodes in place
+tapmap(f, taprootius) # deepcopy and then modify all nodes in place
 
 leafmap!(f, taprootius) # modify all leaves in place
 leafmap(f, taprootius) # deepcopy and then modify all leaves in place
@@ -166,14 +156,29 @@ prune(f, taprootius) # deepcopy and then get rid of children which do not satisf
 leafprune!(f, taprootius) # get rid of leaves which do not satisfy f in place
 leafprune(f, taprootius) # deepcopy and then get rid of leaves which do not satisfy f in place
 
-# To be completely honest, I don't know why you'd ever want to do one of the following things, but hey, you can
 branchprune!(f, taprootius) # get rid of branches which do not satisfy f in place
 branchprune(f, taprootius) # deepcopy and then get rid of branches which do not satisfy f in place
 ```
 
-All those functions work with the preorder so data at the top will be modified before data at the bottom. This is natural for something like pruning (to try and keep things efficient). There is obviously no `reduce` function, because you can just use the iterators above for that! `reduce(f, preorder(taprootius))`. 
+Now from time to time you may not be able to `setdata!` or `setchildren!` because you're dealing with an immutable struct. In that case, just make `setdata!` and `setchildren!` reconstruct your immutable type. 
 
-When you're done, you can convert `taprootius` back to your own struct using `tapout`. But you will need to tell it how.
+
+## Built-in taproots
+
+It's not the point of this package, but there is a minimal (but fully functional) mutable struct called Taproot which this package exports. You can use this to store data if you couldn't be bothered with nesting things in your own struct.
+Taproots, however, don't allow arbitrary children types.
+
+```julia
+Taproot(data::Any, children::Vector{Taproot})
+```
+
+Alternatively, you can convert your type to a Taproots.Taproot. 
+
+```julia
+taprootius = tapin(my_data)
+```
+
+You can get back out again simply by providing some kind of sink. 
 
 ```julia
 back_to_the_future = tapout((data, children) -> MyType(data, children), taprootius)
@@ -181,28 +186,22 @@ back_to_the_future = tapout((data, children) -> MyType(data, children), taprooti
 
 In the example above, the children will automatically be coverted to `MyType` because the `sink` function we provided gets called recursively. 
 
-To show the awesome power of this, let's just tapin, do some stuff, and then tapout again, knowing the our structures (children links) are safe and sound while we prune and modify data.
-Worth noting that this is not the world's most efficient algorithm, but I think it's good enough for most purposes.
+## Seeing the structure of your DAGs
+
+This package is interoperable with Term.jl for a CLI view and adds two very nice graph recipes to Plots.jl.  
+The data inside these can get cluttered, so it's recommended that you just overload `Base.show` for your custom types.
+
+### Terminal visualisation
 
 ```julia
-taprootius_the_second = tapin(x -> x isa MyType ? x.some_data : x, deepcopy(my_data))
-node_of_interest = followtrace(taprootius_the_second, gettrace(x -> x.data == "Such nested, much wow", taprootius_the_second))
-prune!(x -> isparent(x, node_of_interest) || x == node_of_interest, taprootius_the_second)
-map!(uppercase, taprootius_the_second)
-back_to_my_type = tapout((data, children) -> MyType(data, children), taprootius_the_second)
+@sprout MyType # sets up AbstractTrees.jl and Term.jl so that you can call bloom if you want
+@bloom my_data # shows the data nicely
 ```
 
-There is also a shortcut, of course. 
-
+### Plotting
 ```julia
-sink_in = x -> x isa MyType ? x.some_data : x
-sink_out = (data, children) -> MyType(data, children)
+using Plots
 
-in_and_out = doubletap(sink_in, sink_out, my_data) do taproot
-	prune!(x -> isparent(x, node_of_interest) || x == node_of_interest, taproot)
-	map!(uppercase, taproot)
-end
-
-println(my_data)
-println(in_and_out)
+plottree(my_data)
+plotdag(my_data)
 ```
