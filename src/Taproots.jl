@@ -1,7 +1,7 @@
 module Taproots
-using Plots.RecipesBase, GraphRecipes, AbstractTrees
-export Taproot, children, ischild, isparent, isleaf, isbranch, preorder, postorder, topdown, bottomup, leaves, branches, adjacencymatrix, leafmap!, leafmap, branchmap!, branchmap, prune!, prune, leafprune!, leafprune, branchprune!, branchprune,
-tapin, tapout, doubletap, gettrace, followtrace, @taptotree
+using Plots.RecipesBase, GraphRecipes, AbstractTrees, Term.Trees
+export Taproot, children, data, setchildren!, setdata!, ischild, isparent, isleaf, isbranch, preorder, postorder, topdown, bottomup, leaves, branches, adjacencymatrix, tapmap!, tapmap, leafmap!, leafmap, branchmap!, branchmap, prune!, prune, leafprune!, leafprune, branchprune!, branchprune,
+tapin, tapout, gettrace, followtrace, @sprout, bloom, @bloom
 
 ###########################################################################
 # Taproot sink
@@ -13,14 +13,15 @@ It is not the main point of this package, but provides a convenience to persist 
 
 You can construct a Taproot either by: 
 - Taproot(data, children) where `data` is anything that you'd like to store in this node, and `children` is an iterable list of children 
-- Taproot(node) where `node` is some value that has Taproot.children defined on it. This will recurvisely sink your object into a Taproot
+- Taproot(node) where `node` is some value that has Taproots.children and Taproots.data defined on it. This will recurvisely sink your object into a Taproot
 
 """
 mutable struct Taproot
     data
     children::Vector{Taproot}
 end
-Taproot(node) = Taproot(node, Taproot[Taproot(child) for child in children(node)])
+Taproot(node) = Taproot(data(node), Taproot[Taproot(child) for child in children(node)])
+
 function Base.show(io::IO, taproot::Taproot) 
     second = if isleaf(taproot) 
         " (leaf)"
@@ -33,110 +34,19 @@ function Base.show(io::IO, taproot::Taproot)
 end 
 
 """
-    tapin(sink::Function, node)
+    tapin(node)
 
 Another way to access the recursive Taproot constructor, using a custom sink to collect data and children.
-The sink must follow the following structure:
-    sink(one_of_your_nodes)
-It must return a data value that you'd like to store. The children will be automatically inferred from the `Taproots.children` function.
-If you don't provide a sink, it treats it as the identity function. 
+Requires Taproots.data and Taproots.children to work. 
 """
-tapin(sink::Function, node) = Taproot(sink(node), Taproot[tapin(sink, child) for child in children(node)])
-tapin(node) = tapin(x -> x, node)
-
-function maphelper!(f, taproot::Taproot, iter)
-    for node in iter(taproot)
-        node.data = f(node.data)
-    end
-    return taproot
-end
-
-Base.map!(f::Function, taproot::Taproot) = maphelper!(f, taproot, preorder)
-Base.map(f::Function, taproot::Taproot) = map!(f, deepcopy(taproot))
-
-"""
-    leafmap!(f::Function, taproot::Taproot)
-
-Modify the leaves of a Taproot in place. 
-"""
-leafmap!(f::Function, taproot::Taproot) = maphelper!(f, taproot, leaves)
-
-"""
-    leafmap(f::Function, taproot::Taproot)
-
-Deepcopy a Taproot and then modify its leaves in place. 
-"""
-leafmap(f::Function, taproot::Taproot) = leafmap!(f, deepcopy(taproot))
-
-
-"""
-    branchmap!(f::Function, taproot::Taproot)
-
-Modify the branches of a Taproot in place without destroying links to children.
-"""
-branchmap!(f::Function, taproot::Taproot) = maphelper!(f, taproot, branches)
-
-"""
-    branchmap(f::Function, taproot::Taproot)
-
-Deepcopy a Taproot and then modify its branches in place without destroying links to children.
-"""
-branchmap(f::Function, taproot::Taproot) = branchmap!(f, deepcopy(taproot))
-
-function prunehelper!(f, taproot::Taproot, condition)
-    deleteat!(taproot.children, findall(x -> !f(x) && condition(x), taproot.children))
-    for child in taproot.children prunehelper!(f, child, condition) end
-    return taproot
-end
-
-"""
-    prune!(f::Function, taproot::Taproot)
-
-This removes any children who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that child. This is similar to `filter`
-"""
-prune!(f::Function, taproot::Taproot) = prunehelper!(f, taproot, x -> true)
-
-"""
-    prune(f::Function, taproot::Taproot)
-
-This deepcopies the taproot and then removes any children who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that child. This is similar to `filter`
-"""
-prune(f::Function, taproot::Taproot) = prune!(f, deepcopy(taproot))
-
-"""
-    leafprune!(f::Function, taproot::Taproot)
-
-This removes any leaves of the taproot who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`
-"""
-leafprune!(f::Function, taproot::Taproot) = prunehelper!(f, taproot, isleaf)
-
-"""
-    prune(f::Function, taproot::Taproot)
-
-This deepcopies the taproot and then removes any leaves who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`
-"""
-leafprune(f::Function, taproot::Taproot) = leafprune!(f, deepcopy(taproot))
-
-"""
-    branchprune!(f::Function, taproot::Taproot)
-
-This removes any leaves of the taproot who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`
-"""
-branchprune!(f::Function, taproot::Taproot) = prunehelper!(f, taproot, isbranch)
-
-"""
-    prune(f::Function, taproot::Taproot)
-
-This deepcopies the taproot and then removes any leaves who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`
-"""
-branchprune(f::Function, taproot::Taproot) = branchprune!(f, deepcopy(taproot))
+tapin(node) = Taproot(node)
 
 """
     tapout(sink::Function, taproot::Taproot)
 
 This allows you to transform a Taproots.Taproot struct back into one of your own structs. The `sink` function needs to be able to transform a single node of a Taproot into a node in your struct. 
 The sink follows the following structure:
-    sink(data, children)::YourType
+    sink(data, children) which returns whatever type you want.
 
 As a simple example, let's say we have
 
@@ -147,32 +57,25 @@ struct YourType
     children::Vector{YourType}
 end
 Taproots.children(x::YourType) = x.children
+Taproots.data(x::YourType) = (x.printable_name, x.id, x.data)
 
-Then you can convert that to a taproot as follows:
+Then you can convert that to a Taproots.taproot as follows:
 
 your_type = ... 
-your_taproot = Taproot(your_type)
-modified_taproot = prune(x -> !isempty(x.data) && 1 <= length(printable_name) <= 100, your_taproot)
+your_taproot = tapin(your_type)
 your_modified_type = tapout((data, children) -> YourType(data.printable_name, data.id, data.data, children), modified_taproot)
-"""
-tapout(sink::Function, taproot::Taproot) = sink(taproot.data, tapout.(sink, taproot.children))
 
-"""
-    doubletap(f, sink_in::Function, sink_out::Function, my_type)
-    doubletap(f, sink_out::Function, my_type)
-    
-A convenience function that does tapin and tapout for you in one go.
-Use it as follows
-my_modified_tree = doubletap(sink_out, my_type) do taproot
-    map!(x -> x.data^2, taproot)
-    prune!(x -> x < 25, taproot)
-end
+In case you have multiple types in your struct chain, you can say:
 
-`sink_out` is a function that takes in `data` and `children` and needs to map to an object of the variety you want to get out. 
+function sink(data, children)
+    if data isa String 
+        return data 
+    else 
+        return YourType(data.printable_name, data.id, data.data, children)
+    end
+end 
 """
-doubletap(f, sink_in::Function, sink_out::Function, my_type) = tapout(sink_out, f(tapin(sink_in, my_type)))
-doubletap(f, sink_out::Function, my_type) = doubletap(f, x -> x, sink_out, my_type)
-
+tapout(sink::Function, taproot::Taproot) = sink(data(taproot), tapout.(sink, children(taproot)))
 
 ###########################################################################
 # Abstract API
@@ -187,16 +90,84 @@ By default, children(x) will return an empty array, meaning Taproot considers x 
 
 # Overriding this function
 
-Simply define Taproot.children(x::MyType) = ... 
+Simply define Taproots.children(x::MyType) = ... 
 Where the ... returns a vector of the things you want to traverse.
 
 """
 children(x) = []
 children(expr::Expr) = expr.args
-children(x::NamedTuple) = [x[y] for y in fieldnames(typeof(x))]
 children(x::Dict) = values(x) |> collect
 children(x::Vector) = x
 children(x::Taproot) = x.children
+
+"""
+    data(x)
+
+Gets the data of a single node in a Taproot DAG (if defined) of x. This function is meant to be overridden to access Taproot functionality on your own types. 
+
+By default, data(x) will return x, meaning `Taproots` considers x to be perfectly valid data.
+
+# Overriding this function
+
+Simply define Taproots.data(x::MyType) = ... 
+Where the ... returns whatever data is not already included in the Taproots.children function. 
+
+"""
+data(x) = x
+data(expr::Expr) = expr.head
+data(x::Taproot) = x.data
+
+"""
+    setchildren!(node, children::Vector)
+
+Sets the children of your node. Useful if you want to be able to `prune!` your taproot! 
+Should return the entire node once completed. 
+"""
+function setchildren!(node, child_list::Vector) 
+    if isempty(children(node)) && isempty(child_list)
+        return node 
+    end 
+    error("Taproots.setchildren!(node::$(typeof(node)), children) not implemented!")
+    return node
+end 
+setchildren!(node::Expr, children::Vector) = (node.args = children; node)
+setchildren!(node::Vector, children::Vector) = (empty!(node); append!(node, children); node)
+function setchildren!(dict::Dict, children::Vector)
+    newdict = Dict()
+    for (i, key) in enumerate(keys(dict))
+        i <= length(children) && push!(newdict, key => children[i])
+    end
+    empty!(dict)
+    merge!(dict, newdict)
+    return dict
+end 
+
+"""
+    setdata!(node, data)
+
+Sets the data of your node. Useful if you want to be able to `tapmap!` your taproot without messing up your children.
+It should be the case that the following does nothing. 
+setdata!(orig_value, data(orig_value))
+It MUST return the entire node once done (and is allowed to simply return data without modifying the node in place).
+
+# Example
+
+```julia
+Taproots.setdata!(node::MyDataStructure, data) = (node.data = data; node)
+```
+
+"""
+setdata!(node, data) = error("Taproots.setdata(node::$(typeof(node)), data) not implemented!")
+setdata!(node::Vector, data) = setchildren!(node, data)
+setdata!(node::Number, data) = data
+setdata!(node::AbstractString, data) = data
+setdata!(node::AbstractChar, data) = data
+setdata!(node::Taproot, data) = (node.data = data; node)
+function setdata!(dict::Dict, data) 
+    if data === dict return dict end
+    empty!(dict)
+    merge!(dict, data)
+end 
 
 """
     ischild(potential_child, parent)::Bool
@@ -427,6 +398,114 @@ This is a faster algorithm to get the node which matches a trace. A trace is sim
 """
 followtrace(parent, trace) = foldl((current, idx) -> children(current)[idx], trace; init = parent)
 
+function maphelper!(f, taproot, condition)
+    local_map! = node -> condition(node) ? setdata!(node, f(data(node))) : node
+    for node in postorder(taproot)
+        setchildren!(node, local_map!.(children(node)))
+    end
+    return local_map!(taproot)
+end
+
+"""
+    tapmap!(f::Function, taproot)
+
+Modify all the data of every node in a taproot in place.
+"""
+tapmap!(f::Function, taproot) = maphelper!(f, taproot, x -> true)
+
+"""
+    tapmap(f::Function, taproot)
+
+Deepcopy a taproot and then modify its nodes in place. 
+"""
+tapmap(f::Function, taproot) = tapmap!(f, deepcopy(taproot))
+
+"""
+    leafmap!(f::Function, taproot)
+
+Modify the leaves of a taproot in place. 
+"""
+leafmap!(f::Function, taproot) = maphelper!(f, taproot, isleaf)
+
+"""
+    leafmap(f::Function, taproot)
+
+Deepcopy a taproot and then modify its leaves in place. 
+"""
+leafmap(f::Function, taproot) = leafmap!(f, deepcopy(taproot))
+
+
+"""
+    branchmap!(f::Function, taproot)
+
+Modify the branches of a taproot in place without destroying links to children.
+"""
+branchmap!(f::Function, taproot) = maphelper!(f, taproot, isbranch)
+
+"""
+    branchmap(f::Function, taproot)
+
+Deepcopy a taproot and then modify its branches in place without destroying links to children.
+"""
+branchmap(f::Function, taproot) = branchmap!(f, deepcopy(taproot))
+
+function prunehelper!(f, taproot, condition)
+    setchildren!(
+        taproot,
+        deleteat!(children(taproot), findall(x -> !f(x) && condition(x), children(taproot)))
+    )
+    for child in children(taproot) prunehelper!(f, child, condition) end
+    return taproot
+end
+
+"""
+    prune!(f::Function, taproot)
+
+This removes any children who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that child. This is similar to `filter`. 
+However, you cannot prune the root of a taproot. 
+"""
+prune!(f::Function, taproot) = prunehelper!(f, taproot, x -> true)
+
+"""
+    prune(f::Function, taproot)
+
+This deepcopies the taproot and then removes any children who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that child. This is similar to `filter`. 
+However, you cannot prune the root of a taproot. 
+"""
+prune(f::Function, taproot) = prune!(f, deepcopy(taproot))
+
+"""
+    leafprune!(f::Function, taproot)
+
+This removes any leaves of the taproot who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`. 
+However, you cannot prune the root of a taproot. 
+"""
+leafprune!(f::Function, taproot) = prunehelper!(f, taproot, isleaf)
+
+"""
+    prune(f::Function, taproot)
+
+This deepcopies the taproot and then removes any leaves who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`. 
+However, you cannot prune the root of a taproot. 
+"""
+leafprune(f::Function, taproot) = leafprune!(f, deepcopy(taproot))
+
+"""
+    branchprune!(f::Function, taproot)
+
+This removes any leaves of the taproot who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`. 
+However, you cannot prune the root of a taproot. 
+"""
+branchprune!(f::Function, taproot) = prunehelper!(f, taproot, isbranch)
+
+"""
+    prune(f::Function, taproot)
+
+This deepcopies the taproot and then removes any leaves who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`. 
+However, you cannot prune the root of a taproot. 
+"""
+branchprune(f::Function, taproot) = branchprune!(f, deepcopy(taproot))
+
 ###########################################################################
 # Visualisation
 ###########################################################################
@@ -462,12 +541,31 @@ end
     GraphRecipes.GraphPlot((adj,))
 end
 
-macro taptotree(my_type)
+"""
+    @sprout YourType
+
+This just sets AbstractTrees.children(x::YourType) = Taproots.children(x::YourType). Must be used before you can bloom or @bloom. 
+"""
+macro sprout(my_type)
     my_type_esc = esc(my_type)
-    Base.@eval import AbstractTrees
     quote AbstractTrees.children(x::$(my_type_esc)) = children(x) end
 end
 
-@taptotree Taproot
+"""
+    bloom(io::IO, taproot)
+
+Pretty print a taproot. Requires you to have used @sprout YourType for it to work.
+"""
+function bloom(io::IO, taproot) 
+    println(io, Tree(taproot))
+end 
+bloom(taproot) = bloom(stdout, taproot)
+
+macro bloom(taproot)
+    tappy = esc(taproot)
+    quote bloom($(tappy)) end
+end 
+
+@sprout Taproot
 
 end  # module Taproots

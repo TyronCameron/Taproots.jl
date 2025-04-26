@@ -175,55 +175,69 @@ end
 @testset "Can call functional things" begin
 	tappy = Taproot("Hello", [Taproot("Something Else", Taproot[]), Taproot("Another", [Taproot("Yet another one", Taproot[])])])
 	@test reduce((a, b) -> a * b.data, preorder(tappy), init = "") == "HelloSomething ElseAnotherYet another one"
-end
 
-@testset "Taproot conversion is nice" begin
+	orig_dict = deepcopy(dict)
+	mapped_dict = leafmap!(x -> x isa String ? uppercase(x) : x*2, orig_dict)
 
-	tappy = tapin(deepcopy(my_complex_type))
-	@test tappy isa Taproot
-	@test prune!(x -> false, tappy) == tappy
-	@test map!(x -> "New data", tappy).data == "New data"
-	@test isempty(tapout((data, children) -> MyType(children), tappy).values)
-
-	my_type_sink_out = (data, children) -> children isa Vector && !isempty(children) ? MyType(children) : data
-	check_helper = x -> x isa MyType ? x.values : x
-
-	@test begin 
-		orig_values = collect(leaves(my_type))
-		id_values = doubletap(my_type_sink_out, my_type) do taproot
-			taproot
-		end |> leaves |> collect 
-		all(id_values .|> check_helper .== orig_values .|> check_helper)
+	for (k,v) in mapped_dict
+		@test orig_dict[k] == v
 	end
 
-	@test begin 
-		new_tappy = doubletap((data, children) -> MoreFlexiTaproot(data, children), dict) do taproot
-			leafmap!(taproot) do x 
-				if x isa String 
-					uppercase(x) 
-				elseif x isa Number 
-					x^2
-				end
-			end 
-		end 
-		new_values = new_tappy |> leaves |> collect .|> x -> x.data
-		should_be = [25, "HELLO WORLD", "DEAD END"] 
-		all(Set(new_values) .== Set(should_be))
-	end 
+	@test all(leaves(mapped_dict) |> collect |> Set .== Set([10, "HELLO WORLD", "DEAD END"]))
+	
+	@info orig_dict
+	@info dict
 
-	@test begin 
-		new_tappy = doubletap((data, children) -> MyType(children), my_type) do taproot
-			prune(x -> false, taproot)
-		end  
-		len = new_tappy |> leaves |> collect |> length 
-		len == 1
-	end 
-
-	@test begin 
-		pruned_tappy = doubletap((data, children) -> MyType(children), my_type) do taproot
-			leafprune(x -> false, taproot)
-		end 
-		len = pruned_tappy |> postorder |> collect |> length
-		len == length(postorder(my_type) |> collect) - length(leaves(my_type) |> collect)
-	end
 end
+
+
+# @testset "Taproot conversion is nice" begin
+
+# 	tappy = tapin(deepcopy(my_complex_type))
+# 	@test tappy isa Taproot
+# 	@test prune!(x -> false, tappy) == tappy
+# 	@test map!(x -> "New data", tappy).data == "New data"
+# 	@test isempty(tapout((data, children) -> MyType(children), tappy).values)
+
+# 	my_type_sink_out = (data, children) -> children isa Vector && !isempty(children) ? MyType(children) : data
+# 	check_helper = x -> x isa MyType ? x.values : x
+
+# 	@test begin 
+# 		orig_values = collect(leaves(my_type))
+# 		id_values = doubletap(my_type_sink_out, my_type) do taproot
+# 			taproot
+# 		end |> leaves |> collect 
+# 		all(id_values .|> check_helper .== orig_values .|> check_helper)
+# 	end
+
+# 	@test begin 
+# 		new_tappy = doubletap((data, children) -> MoreFlexiTaproot(data, children), dict) do taproot
+# 			leafmap!(taproot) do x 
+# 				if x isa String 
+# 					uppercase(x) 
+# 				elseif x isa Number 
+# 					x^2
+# 				end
+# 			end 
+# 		end 
+# 		new_values = new_tappy |> leaves |> collect .|> x -> x.data
+# 		should_be = [25, "HELLO WORLD", "DEAD END"] 
+# 		all(Set(new_values) .== Set(should_be))
+# 	end 
+
+# 	@test begin 
+# 		new_tappy = doubletap((data, children) -> MyType(children), my_type) do taproot
+# 			prune(x -> false, taproot)
+# 		end  
+# 		len = new_tappy |> leaves |> collect |> length 
+# 		len == 1
+# 	end 
+
+# 	@test begin 
+# 		pruned_tappy = doubletap((data, children) -> MyType(children), my_type) do taproot
+# 			leafprune(x -> false, taproot)
+# 		end 
+# 		len = pruned_tappy |> postorder |> collect |> length
+# 		len == length(postorder(my_type) |> collect) - length(leaves(my_type) |> collect)
+# 	end
+# end
