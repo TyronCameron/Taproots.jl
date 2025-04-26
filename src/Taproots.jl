@@ -1,7 +1,15 @@
 module Taproots
 using Plots.RecipesBase, GraphRecipes, AbstractTrees, Term.Trees
-export Taproot, children, data, setchildren!, setdata!, ischild, isparent, isleaf, isbranch, preorder, postorder, topdown, bottomup, leaves, branches, adjacencymatrix, tapmap!, tapmap, leafmap!, leafmap, branchmap!, branchmap, prune!, prune, leafprune!, leafprune, branchprune!, branchprune,
-tapin, tapout, gettrace, followtrace, @sprout, bloom, @bloom
+export Taproot, 
+    tapin, tapout, 
+    eachfield, 
+    children, data, setchildren!, setdata!, 
+    ischild, isparent, isleaf, isbranch, 
+    preorder, postorder, topdown, bottomup, leaves, branches, traces, tracepairs, 
+    adjacencymatrix, 
+    tapmap!, tapmap, tapmapif!, tapmapif, leafmap!, leafmap, branchmap!, branchmap, prune!, prune, leafprune!, leafprune, branchprune!, branchprune, 
+    findtrace, findtraces, followtrace, followindexes, 
+    @sprout, bloom, @bloom 
 
 ###########################################################################
 # Taproot sink
@@ -100,6 +108,13 @@ children(expr::Expr) = expr.args
 children(x::Dict) = values(x) |> collect
 children(x::Vector) = x
 children(x::Taproot) = x.children
+
+"""
+    eachfield(x)
+
+Returns a tuple of the values in each field in a struct. Nice for if you have a known number of children. 
+"""
+eachfield(x) = getfield.([x], fieldnames(typeof(x)))
 
 """
     data(x)
@@ -248,6 +263,20 @@ function walk_branches(ch, node)
     walk_branches.([ch], children(node))
 end
 
+function walk_traces(ch, node, path = Int[])
+    put!(ch, path)
+    for (i, child) in enumerate(children(node))
+        walk_traces(ch, child, push!(copy(path), i))
+    end
+end
+
+function walk_tracepairs(ch, node, path = Int[])
+    put!(ch, (path, node))
+    for (i, child) in enumerate(children(node))
+        walk_tracepairs(ch, child, push!(copy(path), i))
+    end
+end
+
 """
     preorder(x)
 
@@ -351,6 +380,22 @@ collect(branches(x)) <: Vector
 """
 branches(taproot) = Channel(ch -> walk_branches(ch, taproot)) 
 
+"""
+    traces(x)
+
+This creates a lazy iterator for all the traces (vectors of indices) needed to get from the root to one of the children. 
+This will always be in the preorder (depth-first search). 
+"""
+traces(taproot) = Channel(ch -> walk_traces(ch, taproot))
+
+"""
+    tracepairs(x)
+
+This creates a lazy iterator for all the traces and nodes of a taproot. 
+This will always be in the preorder (depth-first search).
+"""
+tracepairs(taproot) = Channel(ch -> walk_tracepairs(ch, taproot))
+
 function treeadjacency(t)
     top = topdown(t) |> collect
     adj = convert(Array{Int}, zeros(length(top), length(top)))
@@ -380,20 +425,34 @@ Returns an adjacency matrix for this taproot and all its children. If two nodes 
 adjacencymatrix(taproot) = dagadjacency(taproot)
 
 """
-    gettrace(f, parent)
+    findtrace(f, parent)
 
 This is a slower (~linear) algorithm to find the first value where `f` returns true. It returns a vector which can be used to index into a nested data struct.
 You can index into your nested data structure using followtrace.
 """
-function gettrace(matcher::Function, parent; trace = Int[])
-    if matcher(parent) return trace end
-    for (i, child) in enumerate(children(parent))
-        new_trace = gettrace(matcher, child; trace = push!(copy(trace), i))
-        if new_trace !== nothing return new_trace end
-    end
+function findtrace(matcher::Function, parent)
+    for (trace, node) in tracepairs(parent)
+        if matcher(node) return trace end 
+    end 
     return nothing 
 end
-gettrace(child, parent) = gettrace(x -> x == child, parent)
+findtrace(child, parent) = findtrace(x -> x == child, parent)
+
+
+"""
+    findtraces(f, parent)
+
+This is a slower (~linear) algorithm to find all values where `f` returns true. It returns a vector which can be used to index into a nested data struct.
+You can index into your nested data structure using followtrace.
+"""
+function findtraces(matcher::Function, parent)
+    traces = []
+    for (trace, node) in tracepairs(parent)
+        if matcher(node) push!(traces, trace) end 
+    end 
+    return traces
+end
+findtraces(child, parent) = findtraces(x -> x == child, parent)
 
 """
     followtrace(parent, trace)
@@ -402,27 +461,70 @@ This is a faster algorithm to get the node which matches a trace. A trace is sim
 """
 followtrace(parent, trace) = foldl((current, idx) -> children(current)[idx], trace; init = parent)
 
+"""
+    followindexes(indexable_struct, trace, default_value)
+
+This is just a convenience function to index into a nest object (potentially not a taproot in any way) by some iterable value of keys. 
+
+# Example
+
+dict = Dict(1 => Dict(:a => Dict(1 => Dict(:a => "Finally here"))))
+
+followindexes(dict, (1,:a,1,:a)) == "Finally here"
+
+"""
+function followindexes(indexable_struct, trace, default = nothing)
+    current = indexable_struct
+    for idx in trace 
+        try
+            current = current[idx]
+        catch 
+            return default
+        end 
+    end 
+    return current 
+end
+
+_localupd!(f, condition, node) = condition(node) ? setdata!(node, f(data(node))) : node
+
 function maphelper!(f, taproot, condition)
-    local_map! = node -> condition(node) ? setdata!(node, f(data(node))) : node
     for node in postorder(taproot)
-        setchildren!(node, local_map!.(children(node)))
+        setchildren!(node, _localupd!.(f, condition, children(node)))
     end
-    return local_map!(taproot)
+    return _localupd!(f, condition, taproot)
 end
 
 """
     tapmap!(f::Function, taproot)
 
-Modify all the data of every node in a taproot in place.
+Modify all the data of every node in a taproot in place. `f` only acts on the data in each node. 
+This can handle mutable and immutable trees. 
 """
 tapmap!(f::Function, taproot) = maphelper!(f, taproot, x -> true)
 
 """
     tapmap(f::Function, taproot)
 
-Deepcopy a taproot and then modify its nodes in place. 
+Deepcopy a taproot and then modify its nodes in place. `f` only acts on the data in each node. 
+This can handle mutable and immutable trees. 
 """
 tapmap(f::Function, taproot) = tapmap!(f, deepcopy(taproot))
+
+"""
+    tapmapif!(condition::Function, f::Function, taproot)
+
+Modifies nodes in place if the entire node satisfies `condition`. `f` only acts on the data in each node. 
+This can handle mutable and immutable trees. 
+"""
+tapmapif!(condition::Function, f::Function, taproot) = maphelper!(f, taproot, condition)
+
+"""
+    tapmapif(condition::Function, f::Function, taproot)
+
+Deepcopy a taproot and then modify its nodes in place if they satisfy `condition`. `f` only acts on the data in each node. 
+This can handle mutable and immutable trees. 
+"""
+tapmapif(condition::Function, f::Function, taproot) = maphelper!(f, taproot, condition)
 
 """
     leafmap!(f::Function, taproot)

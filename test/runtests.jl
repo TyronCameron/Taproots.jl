@@ -149,12 +149,12 @@ end
 
 @testset "Indexing is nice" begin
 	@testset "Get trace" begin
-		@test all(gettrace(13, expr) .== [2, 3, 3])
-		@test gettrace(25, expr) === nothing
+		@test all(findtrace(13, expr) .== [2, 3, 3])
+		@test findtrace(25, expr) === nothing
 	end
 
 	@testset "Follow trace" begin
-		@test followtrace(expr, gettrace(13, expr)) == 13
+		@test followtrace(expr, findtrace(13, expr)) == 13
 	end
 end
 
@@ -185,9 +185,6 @@ end
 
 	@test all(leaves(mapped_dict) |> collect |> Set .== Set([10, "HELLO WORLD", "DEAD END"]))
 	
-	@info orig_dict
-	@info dict
-
 end
 
 

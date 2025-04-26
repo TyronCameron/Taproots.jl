@@ -1,13 +1,13 @@
 # Taproots.jl
 
-This library is to help you traverse your own nested structs and data in easy peasy ways! 
-Technically, this is a DAG library (and it's inspired by AbstractTrees.jl). 
+This library helps you traverse your own nested structs and data in easy peasy ways! 
+This library is inspired by AbstractTrees.jl. 
 
-For the purposes of this package, we'll consider any struct a Taproot if:
+For the purposes of this package, we'll consider *any* struct a taproot if:
 
-- It has nested data which can be accessed from the struct in some way
-- That nested data forms a Directed Acyclic Graph (DAG) (warning, this package can't handle cycles)
-- "Distance" between nodes is not something we need to consider (unless it can be held in data of some kind). 
+- It has nested data which can be accessed from the struct in some way (whether by using keys or by actually holding that data)
+- That nested data forms a Directed Acyclic Graph (DAG) (warning, this package can't handle cycles -- you'll get stackoverflow)
+- "Distance" between nodes is not something we need to consider (unless it can be held in data of some kind).
 
 That's right, no need to use some struct I created. You can use your own and traverse it a bunch of ways. 
 
@@ -60,7 +60,7 @@ for nested_data in postorder(my_data)
 end
 ```
 
-Or just the things at the edges:
+Or just the things at the edges (which is what I care about most of the time):
 
 ```julia 
 for nested_data in leaves(my_data)
@@ -78,9 +78,12 @@ bottomup(my_data) # this is just the reverse of topdown. Warning, this one isn't
 
 leaves(my_data) # only look at the data that doesn't have children
 branches(my_data) # only look at the data that does have children
+
+traces(my_data) # get all traces (tace = a simple vector of indices in order) so that you can index into a particular child later
+tracepairs(my_data) # get all traces along with values so that you can index into a particular child or just use that information right away
 ```
 
-Each of those functions returns a Julia Channel, so you can use it like any iterator, using `map`, `reduce`, and `Iterators.filter`. Obviously you can just `collect` that into a vector if you prefer.
+Each of those functions returns a Julia Channel, so you can use it like any iterator, using `map`, `reduce`, and `Iterators.filter`. Obviously you can just `collect` that into a vector if you prefer (and you don't need the laziness benefits).
 
 ```julia
 my_data_in_a_vec = my_data |> postorder |> collect
@@ -110,8 +113,10 @@ isbranch(node) # true if the node has any children
 There are handy functions to help you find nodes as well! 
 
 ```julia
-gettrace(matcher, my_data) # gets you an index trace of the first node for which matcher(node) evaluates to true. Can be slow if your Taproot is big.
-gettrace(child, my_data) # gets you an index trace of the first node which is equal to child. Can be slow if your Taproot is big.
+findtrace(matcher, my_data) # gets you an index trace of the first node for which matcher(node) evaluates to true. 
+findtrace(child, my_data) # gets you an index trace of the first node which is equal to child. 
+findtraces(matcher, my_data) # gets you every index trace of the nodes for which matcher(node) evaluates to true.
+findtraces(child, my_data) # gets you every index trace of the nodes for which node == child. 
 followtrace(my_data, trace) # follows the index down to the pits to get you back whatever is in that index spot
 ```
 
@@ -122,8 +127,8 @@ Now there comes a time in every Taprootian's life when they yearn to modify thei
 
 ```julia
 Taproots.data(node::MyType) = node.some_data # provide a way to get any auxiliary data (other than children) that your node might contain. Can simply return `node` or nothing at all. Doing this will unlock sinking your type to a Taproots.Taproot. 
-Taproots.setdata!(node::MyType, data) = (node.some_data = data; node) # provide a way to set data in your node, if any. It can also do nothing. Once done, it must return `node`. This one unlocks `tapmap` and variants.
-Taproots.setchildren!(node::MyType, children::Vector) = (node.children = children; node) # provide a way to set children in your node. This one unlocks `prune` and variants. 
+Taproots.setdata!(node::MyType, data) = (node.some_data = data; node) # provide a way to set data in your node, if any. It can also do nothing. Once done, it must return `node`. This one as well as the next unlocks `tapmap` and variants.
+Taproots.setchildren!(node::MyType, children::Vector) = (node.children = children; node) # provide a way to set children in your node. Once done, it must return `node`. This one unlocks `prune` and variants. 
 ````
 
 Now we get the *good* stuff. We can map every node's data while keeping the structure sparkly. 
@@ -143,6 +148,9 @@ There are similar handy functions such as:
 ```julia
 tapmap!(f, taprootius) # modify all nodes in place
 tapmap(f, taprootius) # deepcopy and then modify all nodes in place
+
+tapmapif!(condition, f, taprootius) # modify nodes in place if they satisfy `condition`. Very handy if your tree has multiple different types. 
+tapmapif(condition, f, taprootius) # deepcopy and then modify nodes in place if they satisfy `condition`. Very handy if your tree has multiple different types. 
 
 leafmap!(f, taprootius) # modify all leaves in place
 leafmap(f, taprootius) # deepcopy and then modify all leaves in place
@@ -208,6 +216,38 @@ leafmap!(x -> x == :map ? :filter : x, expr)
 eval(expr)
 ```
 
+This last bit here is absolute raw power. Code expressions are abstract syntax trees, and so they are taproots as well.
+
+You might be wondering at this stage, "Is every struct actually a taproot". Of course they are ... 
+
+```julia
+struct FourLeggedStruct 
+	a
+	b
+	c
+	d
+end 
+```
+
+Can we just define the children to be `(a,b,c,d)`? Yes, we can, and it's easy. But sometimes it's better not to think of them that way, and that's why this isn't the default behaviour of Taproots.jl. But should you want to, you can just do this 
+
+```julia
+Taproots.children(x::FourLeggedStruct) = eachfield(x)
+```
+
+Or if you just want to traverse a ton of stuff:
+
+```julia
+Taproots.children(x) = eachfield(x) # now everything will do this by default (unless more specifically defined). 
+```
+
+There is also one more thing this package does which I think it pretty handy and which is related to the main concepts that Taproot deals with, but does not actually a require a taproot. It requires nested data with keys. 
+```julia
+dict = Dict(1 => Dict(:a => Dict(1 => Dict(:a => "Finally here"))))
+followindexes(dict, (1,:a,1,:a)) == "Finally here"
+```
+
+
 ## Seeing the structure of your DAGs
 
 This package is interoperable with Term.jl for a CLI view and adds two very nice graph recipes to Plots.jl.  
@@ -227,3 +267,24 @@ using Plots
 plottree(my_data)
 plotdag(my_data)
 ```
+
+## FAQ
+
+### Why do I need to define `children` and `data` and `setchildren!` and `setdata!`. Why not just `children` and `setchildren!`? 
+
+So that you don't accidentally lose the children by calling `tapmap!`, and you don't accidentally modify data with `prune!`.
+
+### Why is `tapmap` not as speedy as `tapmap!` (and similar)?
+
+`tapmap` deepcopies before it calls `tapmap!`. That is expensive, but a neat way of ensuring we don't modify the wrong data. 
+
+### How can I improve the speed of `tapmap!` (and similar)? 
+
+Use `tapmapif!(condition, f, taproot)`. This will only execute `f` and set data and so on if the condition is satisfied. 
+
+### What if my struct is immutable? 
+
+If your `Taproots.data` is immutable, that's fine. You just need `Taproots.setdata!` to return the entire node (as always). I catered for that in `tapmap!` because this is so common with leaf nodes. 
+`tapmap!` will automatically reconstruct the children in a nice way for you -- but, warning, it calls `Taproots.setchildren!`. 
+If your children are immutable, I haven't catered for that nicely, and neither `tapmap!` nor `prune!` (and variants) will work. 
+
