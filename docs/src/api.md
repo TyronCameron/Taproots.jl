@@ -1,13 +1,13 @@
 # Taproots API
 
 ```@docs
-MyAwesomePackage
+Taproots
 ```
 
 ## Module Index
 
 ```@index
-Modules = [MyAwesomePackage]
+Modules = [Taproots]
 Order   = [:constant, :type, :function, :macro]
 ```
 
