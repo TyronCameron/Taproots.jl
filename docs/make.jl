@@ -10,8 +10,7 @@ makedocs(
     pages = [
         "Taproots" => "main.md",
         "API" => "api.md"
-    ],
-    strict = false
+    ]
 )
 
 deploydocs(
