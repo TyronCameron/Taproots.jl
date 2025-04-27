@@ -8,8 +8,10 @@ makedocs(
     format = Documenter.HTML(),
     modules = [Taproots],
     pages = [
-        "Taproots" => "main.md"
-    ]
+        "Taproots" => "main.md",
+        "API" => "api.md"
+    ],
+    strict = false
 )
 
 deploydocs(

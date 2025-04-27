@@ -1,3 +1,6 @@
+"""
+Taproots is a library for traversing nested data structures.
+"""
 module Taproots
 using Plots.RecipesBase, GraphRecipes, AbstractTrees, Term.Trees
 export Taproot, 
