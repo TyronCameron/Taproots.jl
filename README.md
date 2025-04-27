@@ -1,4 +1,4 @@
-[![Docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://TyronCameron.github.io/Taproots.jl/main)
+[![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://tyroncameron.github.io/Taproots.jl/dev/)
 
 # Taproots.jl
 
@@ -212,10 +212,11 @@ dict = Dict(
 		:d => "final_data"
 	)
 leafmap!(uppercase, dict)
+```
 
-# or another case -- fixing our code 
-# change every `map` to `filter` in this code. 
+Here's another usecase: metaprogramming. 
 
+```julia
 nums = 1:100
 expr = :(append!(map(x -> sqrt(x) == floor(sqrt(x)), nums), map(x -> x^(1/3) == floor(x^(1/3)), nums)) |> unique!)
 leafmap!(x -> x == :map ? :filter : x, expr)

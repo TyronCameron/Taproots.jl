@@ -19,6 +19,10 @@ That being said, many structures in the world form Taproots:
 - Nested data structures such as JSON, YAML, and so on. Nested Julia Dicts also do this
 - A response variable with all its causally-related covariates. 
 
+## Installation 
+
+In the julia REPL, type ] and the `add Taproots`.
+
 ## How to use
 
 You can turn your own structs into Taproots very quickly!
@@ -206,10 +210,11 @@ dict = Dict(
 		:d => "final_data"
 	)
 leafmap!(uppercase, dict)
+```
 
-# or another case -- fixing our code 
-# change every `map` to `filter` in this code. 
+Here's another usecase: metaprogramming. 
 
+```julia
 nums = 1:100
 expr = :(append!(map(x -> sqrt(x) == floor(sqrt(x)), nums), map(x -> x^(1/3) == floor(x^(1/3)), nums)) |> unique!)
 leafmap!(x -> x == :map ? :filter : x, expr)
