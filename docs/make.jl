@@ -8,7 +8,7 @@ makedocs(
     format = Documenter.HTML(),
     modules = [Taproots],
     pages = [
-        "Taproots" => "main.md",
+        "Index" => "index.md",
         "API" => "api.md"
     ]
 )
