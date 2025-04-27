@@ -1,5 +1,3 @@
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)]()
-
 # Taproots.jl
 
 This library helps you traverse your own nested structs and data in easy peasy ways! 
@@ -20,10 +18,6 @@ That being said, many structures in the world form Taproots:
 - File and folder structures (pls ignore symlinks)
 - Nested data structures such as JSON, YAML, and so on. Nested Julia Dicts also do this
 - A response variable with all its causally-related covariates. 
-
-## Installation 
-
-In the julia REPL, type ] and the `add Taproots`.
 
 ## How to use
 
