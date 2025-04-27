@@ -1,4 +1,4 @@
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)]()
+[![Docs](https://img.shields.io/badge/docs-stable-blue.svg)](https://TyronCameron.github.io/Taproots.jl/main)
 
 # Taproots.jl
 
