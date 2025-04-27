@@ -8,7 +8,6 @@ on:
       - main
     tags: '*'
 
-# needed to allow julia-actions/cache to delete old caches that it has created
 permissions:
   actions: write
   contents: read
@@ -18,7 +17,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        julia-version: ['lts', '1']
+        julia-version: ['lts']
         julia-arch: [x64, x86]
         os: [ubuntu-latest, windows-latest, macOS-latest]
         exclude:
