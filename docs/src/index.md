@@ -38,7 +38,7 @@ end
 Taproots.children(x::MyType) = x.children 
 ```
 
-We're done! You now have access to (almost) all the functionality in Taproots.jl. 
+We're done! You now have access to (almost) all the functionality in Taproots.jl. Your struct doesn't need to be mutable. However, it'll simplify things for this example.
 
 Now let's say you create some nastily nested structure: 
 
@@ -133,7 +133,7 @@ Now there comes a time in every Taprootian's life when they yearn to modify thei
 Taproots.data(node::MyType) = node.some_data # provide a way to get any auxiliary data (other than children) that your node might contain. Can simply return `node` or nothing at all. Doing this will unlock sinking your type to a Taproots.Taproot. 
 Taproots.setdata!(node::MyType, data) = (node.some_data = data; node) # provide a way to set data in your node, if any. It can also do nothing. Once done, it must return `node`. This one as well as the next unlocks `tapmap` and variants.
 Taproots.setchildren!(node::MyType, children::Vector) = (node.children = children; node) # provide a way to set children in your node. Once done, it must return `node`. This one unlocks `prune` and variants. 
-````
+```
 
 Now we get the *good* stuff. We can map every node's data while keeping the structure sparkly. 
 
