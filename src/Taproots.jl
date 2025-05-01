@@ -11,7 +11,7 @@ export Taproot,
     preorder, postorder, topdown, bottomup, leaves, branches, traces, tracepairs, 
     adjacencymatrix, 
     tapmap!, tapmap, tapmapif!, tapmapif, leafmap!, leafmap, branchmap!, branchmap, prune!, prune, leafprune!, leafprune, branchprune!, branchprune, 
-    findtrace, findtraces, followtrace, followindexes, 
+    findtrace, findtraces, pluck, graft!, getatkeys, setatkeys!,
     @sprout, bloom, @bloom 
 
 ###########################################################################
@@ -232,39 +232,79 @@ Tells you whether this `node` is a branch node (i.e. it has children).
 """
 isbranch(node) = !isleaf(node)
 
-
-function walk_preorder(ch, node)
-    put!(ch, node)
-    walk_preorder.([ch], children(node))
-end
-
-function walk_postorder(ch, node)
-    walk_postorder.([ch], children(node))
-    put!(ch, node)
-end
-
-function unvisited!(node, visited)
-    if node ∈ visited return false end
+function visited!(node, visited::Set, revisit = false)
+    if revisit return false end
+    if node ∈ visited return true end
     push!(visited, node)
-    return true
+    return false
 end
 
-function walk_topdown(ch, node, visited = Set{Any}())
+function walk_preorder(ch, node, revisit)
+    stack = [node]
+    visited = Set()
+    while !isempty(stack)
+        node = pop!(stack)
+        if visited!(node, visited, revisit) continue end 
+        put!(ch, node)
+        push!.([stack], children(node))
+    end
+end
+
+function walk_postorder(ch, root, revisit)
+    stack = [(root, false)]
+    visited = Set()
+    while !isempty(stack)
+        node, seen = pop!(stack)
+        if node ∈ visited continue end 
+        if seen
+            visited!(node, visited) || put!(ch, node)
+        else
+            push!(stack, (node, true))
+            for child in children(node)
+                push!(stack, (child, false))
+            end
+        end
+    end
+end
+
+# rename to walk_siblingorder
+function walk_topdown(ch, node, visited = Set())
     unvisited!(node, visited) && put!(ch, node)
     unvisited = filter(child -> unvisited!(child, visited), children(node))
     put!.([ch], unvisited)
     for child in unvisited walk_topdown(ch, child, visited) end
 end
 
-function walk_leaves(ch, node)
-    isleaf(node) && put!(ch, node)
-    walk_leaves.([ch], children(node))
+# function walk_topdown(ch, root, revisit)
+#     stack = [root]
+#     visited = Set()
+#     while !isempty(stack)
+#         node = pop!(stack)
+#         unvisited!(node, visited) && put!(ch, node)
+#         push!.([stack], children(node))
+#     end
+# end
+
+# function walk_bottomup(ch, root, revisit)
+
+# end
+
+function walk_traces(ch, node, revisit)
+    stack = [node]
+    visited = Set()
+    paths = [Int[]]
+    while !isempty(stack)
+        node = pop!(stack)
+        path = pop!(paths)
+        if visited!(node, visited, revisit) continue end 
+        put!(ch, path)
+        for (i,child) in enumerate(children(node))
+            push!(stack, child)
+            push!(paths, push!(copy(path), i))
+        end 
+    end
 end
 
-function walk_branches(ch, node)
-    isbranch(node) && put!(ch, node)
-    walk_branches.([ch], children(node))
-end
 
 function walk_traces(ch, node, path = Int[])
     put!(ch, path)
@@ -300,7 +340,7 @@ preorder(taproot) = Channel(ch -> walk_preorder(ch, taproot))
 """
     postorder(x)
 
-This creates a lazy iterator as a postorder depth-first search of your custom Taproot. This is topological order and most of the time, you're looking for this. 
+This creates a lazy iterator as a postorder depth-first search of your custom Taproot. 
 In this iterator, children are always iterated on before their parents. Parents will immediately follow their children (so some (possibly irrelevant) children may not be iterated before the parent above them).
 
 # Usage
@@ -313,6 +353,22 @@ collect(postorder(x)) <: Vector
 
 """
 postorder(taproot) = Channel(ch -> walk_postorder(ch, taproot)) 
+
+"""
+    siblingorder(x)
+
+This creates a lazy iterator which first visits siblings of the same parents before moving on downwards in your custom Taproot. 
+
+# Usage
+
+for x in siblingorder(x)
+    print(x)
+end 
+
+collect(siblingorder(x)) <: Vector
+
+"""
+siblingorder(taproot) = Channel(ch -> siblingorder(ch, taproot)) 
 
 """
     topdown(x)
@@ -335,7 +391,7 @@ topdown(taproot) = Channel(ch -> walk_topdown(ch, taproot))
 """
     bottomup(x)
 
-This creates an eager iterator as a bottomup (reverse level-order) breadth-first search of your custom Taproot.
+This creates an eager iterator as a bottomup (reverse level-order) breadth-first search of your custom Taproot. This is topological order.
 The bottom children are iterated first, and then the next layer up and so on. Leaves are not technically guaranteed to be iterated on first, before parents. 
 While the other iterators are lazy, this one is eager, and will actually return a vector. 
 
@@ -365,7 +421,7 @@ end
 collect(leaves(x)) <: Vector
 
 """
-leaves(taproot) = Channel(ch -> walk_leaves(ch, taproot)) 
+leaves(taproot) = Iterators.filter(isleaf, postorder(taproot))
 
 """
     branches(x)
@@ -381,7 +437,7 @@ end
 collect(branches(x)) <: Vector
 
 """
-branches(taproot) = Channel(ch -> walk_branches(ch, taproot)) 
+branches(taproot) = Iterators.filter(isbranch, postorder(taproot))
 
 """
     traces(x)
@@ -431,7 +487,7 @@ adjacencymatrix(taproot) = dagadjacency(taproot)
     findtrace(f, parent)
 
 This is a slower (~linear) algorithm to find the first value where `f` returns true. It returns a vector which can be used to index into a nested data struct.
-You can index into your nested data structure using followtrace.
+You can index into your nested data structure using pluck.
 """
 function findtrace(matcher::Function, parent)
     for (trace, node) in tracepairs(parent)
@@ -446,7 +502,7 @@ findtrace(child, parent) = findtrace(x -> x == child, parent)
     findtraces(f, parent)
 
 This is a slower (~linear) algorithm to find all values where `f` returns true. It returns a vector which can be used to index into a nested data struct.
-You can index into your nested data structure using followtrace.
+You can index into your nested data structure using pluck.
 """
 function findtraces(matcher::Function, parent)
     traces = []
@@ -458,14 +514,28 @@ end
 findtraces(child, parent) = findtraces(x -> x == child, parent)
 
 """
-    followtrace(parent, trace)
+    pluck(parent, trace)
 
-This is a faster algorithm to get the node which matches a trace. A trace is simply an iterable set of indices.
+This gets the node which matches a trace. A trace is simply an iterable set of children indices.
 """
-followtrace(parent, trace) = foldl((current, idx) -> children(current)[idx], trace; init = parent)
+pluck(parent, trace) = foldl((current, idx) -> children(current)[idx], trace; init = parent)
 
 """
-    followindexes(indexable_struct, trace, default_value)
+    graft!(parent, trace, value)
+
+This sets the node which matches a trace. A trace is simply an iterable set of children indices.
+"""
+function graft!(parent, trace, value) 
+    trace = collect(trace)
+    current_parent = pluck(parent, trace[begin:(end - 1)])
+    current_children = copy(children(current_parent))
+    current_children[trace[end]] = value
+    setchildren!(current_parent, current_children)
+    return parent 
+end 
+
+"""
+    getatkeys(indexable_struct, trace, default_value)
 
 This is just a convenience function to index into a nest object (potentially not a taproot in any way) by some iterable value of keys. 
 
@@ -473,10 +543,10 @@ This is just a convenience function to index into a nest object (potentially not
 
 dict = Dict(1 => Dict(:a => Dict(1 => Dict(:a => "Finally here"))))
 
-followindexes(dict, (1,:a,1,:a)) == "Finally here"
+getatkeys(dict, (1,:a,1,:a)) == "Finally here"
 
 """
-function followindexes(indexable_struct, trace, default = nothing)
+function getatkeys(indexable_struct, trace, default = nothing)
     current = indexable_struct
     for idx in trace 
         try
@@ -486,6 +556,18 @@ function followindexes(indexable_struct, trace, default = nothing)
         end 
     end 
     return current 
+end
+
+"""
+    setatkeys!(indexable_struct, trace, value)
+
+This is just a convenience function to index into a nest object (potentially not a taproot in any way) by some iterable value of keys. 
+"""
+function setatkeys!(indexable_struct, trace, value)
+    trace = collect(trace)
+    current_parent = getatkeys(indexable_struct, trace[begin:(end - 1)])
+    current_parent[trace[end]] = value 
+    return indexable_struct
 end
 
 _localupd!(f, condition, node) = condition(node) ? setdata!(node, f(data(node))) : node
