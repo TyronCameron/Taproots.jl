@@ -20,7 +20,7 @@ export Taproot, tapin, tapout,
 """
 A Taproot is a single node that that can contain other Taproots. It can itself be contained in a parent Taproot.
 It is not the main point of this package, but provides a convenience to persist structure when doing maps or other transformations.
-It is also useful if you simply wish to build a data structure which obeys everything in `Taproots.jl`. 
+It is also useful if you simply wish to build a data structure which already obeys everything in `Taproots.jl`. 
 
 You can construct a Taproot either by: 
 - `Taproot(data, children)` where `data` is anything that you'd like to store in this node, and `children` is an iterable list of children 
@@ -205,9 +205,9 @@ Taproots.setdata!(node::MyDataStructure, data) = (node.data = data; node)
 ```
 
 """
-setdata!(node, data) = error("Taproots.setdata!(node::$(typeof(node)), data) not implemented!")
+setdata!(node, data) = error("Taproots.setdata!(node::$(typeof(node)), data) not implemented! It is intended that you implement this function -- it has downtrack implications for Taproots functionality.")
 setdata!(node::Symbol, data) = data
-setdata!(node::Expr, data) = data
+setdata!(node::Expr, data) = node
 setdata!(node::LineNumberNode, data) = node
 setdata!(node::Vector, data) = setchildren!(node, data)
 setdata!(node::Number, data) = data
@@ -533,7 +533,8 @@ findtraces(child, parent) = findtraces(x -> x == child, parent)
 
 This gets the node which matches a trace. A trace is simply an iterable set of children indices.
 """
-pluck(parent, trace::Vector{Int}; default = nothing) = try foldl((current, idx) -> children(current)[idx], trace; init = parent) catch default end 
+pluck(parent, trace::AbstractVector; default = nothing) = try foldl((current, idx) -> children(current)[idx], trace; init = parent) catch default end 
+pluck(parent, trace::Tuple; default = nothing) = pluck(parent, collect(trace); default = default)
 pluck(parent, trace...; default = nothing) = pluck(parent, collect(trace); default = default)
 
 """
@@ -541,7 +542,7 @@ pluck(parent, trace...; default = nothing) = pluck(parent, collect(trace); defau
 
 This sets the node which matches a trace. A trace is simply an iterable set of children indices.
 """
-function graft!(parent, trace, value) 
+function graft!(parent, trace::AbstractVector, value) 
     trace = collect(trace)
     current_parent = pluck(parent, trace[begin:(end - 1)])
     current_children = copy(children(current_parent))
@@ -600,7 +601,14 @@ dict = Dict(1 => Dict(:a => Dict(1 => Dict(:a => "Finally here"))))
 getatkeys(dict, (1,:a,1,:a)) == "Finally here"
 
 """
-getatkeys(parent, trace::Vector; default = nothing) = try foldl((current, idx) -> current[idx], trace; init = parent) catch default end 
+function getatkeys(parent, trace::Vector; default = nothing) 
+    try 
+        return foldl((current, idx) -> current[idx], trace; init = parent) 
+    catch 
+        return default 
+    end 
+end
+getatkeys(parent, trace::Tuple; default = nothing) = getatkeys(parent, collect(trace); default = default)
 getatkeys(parent, trace...; default = nothing) = getatkeys(parent, collect(trace); default = default)
 
 """

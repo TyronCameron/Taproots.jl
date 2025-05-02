@@ -63,23 +63,24 @@ struct TerniaryTree
 	middle_option::Union{TerniaryTree, Nothing}
 	right_option::Union{TerniaryTree, Nothing}
 end 
+Base.show(io::IO, node::TerniaryTree) = print(io, node.node_name)
 ```
 
 Get access to all the traversal functionality in this package very easily!
 
 ```julia
-Taproots.children(x::TerniaryTree) = (left_option, middle_option, right_option)
+Taproots.children(node::TerniaryTree) = (node.left_option, node.middle_option, node.right_option)
 ```
 
 Now we can traverse the `TerniaryTree`
 
 ```julia
 for node in postorder(deeply_nested_terniary_tree) 
-	println(node.node_name)
+	println(node)
 end 
 ```
 
-Get access to modification function by implementing `Taproots.data`, `Taproots.setchildren!`, `Taproots.setdata!`. Sounds like effort, but it's worth it! 
+Get access to modification functionality by optionally implementing `Taproots.data`, `Taproots.setchildren!`, `Taproots.setdata!`. It's worth it! 
 
 ## Bonus: Get free visualisation set up for your types
 
@@ -88,10 +89,16 @@ Get access to modification function by implementing `Taproots.data`, `Taproots.s
 @bloom deeply_nested_terniary_tree
 ```
 
+```julia
+using Plots
+plotdag(deeply_nested_terniary_tree) 
+plottree(deeply_nested_terniary_tree) 
+```
+
 ## Bonus: Index into nested data in a nice way!
 
 ```julia
-followindexes(dict, [:a, :b], "Nothing found") == "nonsense_data"
+getatkeys(dict, (:a, :b); default = "Nothing found") == "nonsense_data"
 ```
 
-For this an more, check out the [docs](https://tyroncameron.github.io/Taproots.jl/dev/)! 
+For this and more, check out the [docs](https://tyroncameron.github.io/Taproots.jl/dev/)! 
