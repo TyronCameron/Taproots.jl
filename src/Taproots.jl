@@ -3,8 +3,7 @@ Taproots is a library for traversing nested data structures.
 """
 module Taproots
 using Plots.RecipesBase, GraphRecipes, AbstractTrees, Term.Trees
-export Taproot, 
-    tapin, tapout, 
+export Taproot, tapin, tapout, 
     eachfield, 
     children, data, setchildren!, setdata!, 
     ischild, isparent, isleaf, isbranch, 
@@ -21,11 +20,11 @@ export Taproot,
 """
 A Taproot is a single node that that can contain other Taproots. It can itself be contained in a parent Taproot.
 It is not the main point of this package, but provides a convenience to persist structure when doing maps or other transformations.
-It is also useful if you simply wish to build a data structure which obeys everything in Taproots.jl. 
+It is also useful if you simply wish to build a data structure which obeys everything in `Taproots.jl`. 
 
 You can construct a Taproot either by: 
-- Taproot(data, children) where `data` is anything that you'd like to store in this node, and `children` is an iterable list of children 
-- Taproot(node) where `node` is some value that has Taproots.children and Taproots.data defined on it. This will recurvisely sink your object into a Taproot
+- `Taproot(data, children)` where `data` is anything that you'd like to store in this node, and `children` is an iterable list of children 
+- `Taproot(node)` where `node` is some value that has `Taproots.children` and `Taproots.data` defined on it. This will recurvisely sink your object into a `Taproots.Taproot`
 
 """
 mutable struct Taproot
@@ -42,26 +41,27 @@ function Base.show(io::IO, taproot::Taproot)
     else 
         "+($(length(taproot.children)) children)"
     end 
-    print(io, taproot.data, second)
+    print(io, "Taproot(", taproot.data, ")", second)
 end 
 
 """
     tapin(node)
 
-Another way to access the recursive Taproot constructor, using a custom sink to collect data and children.
-Requires Taproots.data and Taproots.children to work. 
+The standard way to access the recursive Taproot constructor, using a custom sink to collect data and children.
+Requires `Taproots.data` and `Taproots.children` to work. 
 """
 tapin(node) = Taproot(node)
 
 """
     tapout(sink::Function, taproot::Taproot)
 
-This allows you to transform a Taproots.Taproot struct back into one of your own structs. The `sink` function needs to be able to transform a single node of a Taproot into a node in your struct. 
+This allows you to transform a `Taproots.Taproot` struct back into one of your own structs. The `sink` function needs to be able to transform a single node of a `Taproot` into a node in your struct. 
 The sink follows the following structure:
     sink(data, children) which returns whatever type you want.
 
 As a simple example, let's say we have
 
+```julia
 struct YourType 
     printable_name::String
     id::UUID
@@ -70,15 +70,19 @@ struct YourType
 end
 Taproots.children(x::YourType) = x.children
 Taproots.data(x::YourType) = (x.printable_name, x.id, x.data)
+```
 
-Then you can convert that to a Taproots.taproot as follows:
+Then you can convert that to a `Taproots.Taproot` as follows:
 
-your_type = ... 
+```julia
+your_type = ... # nest your stuff here as much as you want.
 your_taproot = tapin(your_type)
 your_modified_type = tapout((data, children) -> YourType(data.printable_name, data.id, data.data, children), modified_taproot)
+```
 
-In case you have multiple types in your struct chain, you can say:
+In case you have multiple types in your struct chain, you should take that into account in your sink. For example, you can do different things in case your `Taproot` has `String` type leaves.
 
+```julia
 function sink(data, children)
     if data isa String 
         return data 
@@ -86,6 +90,8 @@ function sink(data, children)
         return YourType(data.printable_name, data.id, data.data, children)
     end
 end 
+```
+
 """
 tapout(sink::Function, taproot::Taproot) = sink(data(taproot), tapout.(sink, children(taproot)))
 
@@ -94,42 +100,47 @@ tapout(sink::Function, taproot::Taproot) = sink(data(taproot), tapout.(sink, chi
 ###########################################################################
 
 """
-    children(x)
+    children(node)
 
-Gets the children nodes in a Taproot DAG (if defined) of x. This function is meant to be overridden to access Taproot functionality on your own types. 
+Gets the children nodes in a Taproot DAG (if defined) of `node`. This function is meant to be overridden to access `Taproot.jl` functionality on your own types. 
 
-By default, children(x) will return an empty array, meaning Taproot considers x to be a graph with a singular node (unless you overload this function.) 
+By default, `children(node)` will return an empty array, meaning `Taproot.jl` considers `node` to be a graph with a singular node (unless you overload this function.) 
 
 # Overriding this function
 
-Simply define Taproots.children(x::MyType) = ... 
-Where the ... returns a vector of the things you want to traverse.
+Simply define `Taproots.children(node::MyType) = ...`
+Where the `...` returns a vector of the things you want to traverse.
 
 """
-children(x) = []
+children(node) = []
 children(expr::Expr) = expr.args
-children(x::Dict) = values(x) |> collect
-children(x::Vector) = x
-children(x::Taproot) = x.children
+children(node::Dict) = values(node) |> collect
+children(node::Vector) = node
+children(node::Taproot) = node.children
 
 """
     eachfield(x)
 
 Returns a tuple of the values in each field in a struct. Nice for if you have a known number of children. 
+
 """
 eachfield(x) = getfield.([x], fieldnames(typeof(x)))
 
 """
     data(x)
 
-Gets the data of a single node in a Taproot DAG (if defined) of x. This function is meant to be overridden to access Taproot functionality on your own types. 
+Gets the data of a single node in a Taproot DAG (if defined) of x. This function is optional (recommended) to override and can neaten up your life.
+This function separates the idea of data that a node holds versus the children of your taproot. 
 
-By default, data(x) will return x, meaning `Taproots` considers x to be perfectly valid data.
+By default, `data(x)` will return x, meaning `Taproots.jl` considers `x` (i.e. the entire node) to be perfectly valid data in and of itself. 
+However, this is sometimes dangerous, because editing `x` can destroy the link to `x`'s children. Override it to get rid of this danger.
+
+Whatever you define `data(x)` to be needs to be consistent with `setdata!()
 
 # Overriding this function
 
-Simply define Taproots.data(x::MyType) = ... 
-Where the ... returns whatever data is not already included in the Taproots.children function. 
+Simply define `Taproots.data(x::MyType) = ...`
+Where the `...` returns whatever data is not already included in the `Taproots.children` function. 
 
 """
 data(x) = x
@@ -137,10 +148,21 @@ data(expr::Expr) = expr.head
 data(x::Taproot) = x.data
 
 """
-    setchildren!(node, children::Vector)
+    setchildren!(node, children::Vector)::typeof(node)
 
-Sets the children of your node. Useful if you want to be able to `prune!` your taproot! 
+Sets the children of your node. This is required for the following functionality: 
+
+- `prune!` (and `prune` variants)
+- `tapmap!` (and `tapmap` variants)
+- `graft!` 
+- `uproot`
+
 Should return the entire node once completed. 
+
+You will need to define this in such a way that the following should do nothing:
+
+`setchildren!(node, children(node))`
+
 """
 function setchildren!(node, child_list::Vector) 
     if isempty(children(node)) && isempty(child_list)
@@ -162,12 +184,19 @@ function setchildren!(dict::Dict, children::Vector)
 end 
 
 """
-    setdata!(node, data)
+    setdata!(node, data)::typeof(node)
 
 Sets the data of your node. Useful if you want to be able to `tapmap!` your taproot without messing up your children.
-It should be the case that the following does nothing. 
-setdata!(orig_value, data(orig_value))
+
+You need to keep this consistent with whatever you defined for `Taproots.data`. In other words, it should be the case that the following does nothing. 
+`setdata!(node, data(node))`
+
 It MUST return the entire node once done (and is allowed to simply return data without modifying the node in place).
+
+This is required to be implemented for the following functionality:
+
+- `tapmap!` (and `tapmap` and variants)
+- `graft!` 
 
 # Example
 
@@ -196,13 +225,12 @@ end
 
 Tells you whether `potential_child` is a child of `parent`. This function acts recursively and is not the same as doing `potential_child ∈ children(parent)`. 
 Time complexity of this is ~linear in the number of edges in your DAG underneath the `parent`, so use with care for large DAGs.
-
 """
 function ischild(potential_child, parent)  
-    for child in children(parent)
-        if potential_child == child || ischild(potential_child, child)
-            return true
-        end
+    nodes = preorder(parent)
+    take!(nodes)
+    for child in nodes
+        if potential_child == child return true end
     end
     return false
 end
@@ -239,8 +267,8 @@ function visited!(node, visited::Set, revisit = false)
     return false
 end
 
-function walk_preorder(ch, node, revisit)
-    stack = [node]
+function walk_preorder(ch, root, revisit = false)
+    stack = Any[root]
     visited = Set()
     while !isempty(stack)
         node = pop!(stack)
@@ -250,15 +278,15 @@ function walk_preorder(ch, node, revisit)
     end
 end
 
-function walk_postorder(ch, root, revisit)
-    stack = [(root, false)]
+function walk_postorder(ch, root, revisit = false)
+    stack = Tuple{Any, Bool}[(root, false)]
     visited = Set()
     while !isempty(stack)
         node, seen = pop!(stack)
-        if node ∈ visited continue end 
         if seen
-            visited!(node, visited) || put!(ch, node)
+            put!(ch, node)
         else
+            if visited!(node, visited, revisit) continue end 
             push!(stack, (node, true))
             for child in children(node)
                 push!(stack, (child, false))
@@ -267,56 +295,58 @@ function walk_postorder(ch, root, revisit)
     end
 end
 
-# rename to walk_siblingorder
-function walk_topdown(ch, node, visited = Set())
-    unvisited!(node, visited) && put!(ch, node)
-    unvisited = filter(child -> unvisited!(child, visited), children(node))
-    put!.([ch], unvisited)
-    for child in unvisited walk_topdown(ch, child, visited) end
+function walk_topdown(ch, root, revisit = false)
+    queue = Any[root]
+    visited = Set()
+    while !isempty(queue)
+        node = popfirst!(queue)
+        if visited!(node, visited, revisit) continue end
+        put!(ch, node)
+        append!(queue, children(node))
+    end
 end
 
-# function walk_topdown(ch, root, revisit)
-#     stack = [root]
-#     visited = Set()
-#     while !isempty(stack)
-#         node = pop!(stack)
-#         unvisited!(node, visited) && put!(ch, node)
-#         push!.([stack], children(node))
-#     end
-# end
-
-# function walk_bottomup(ch, root, revisit)
-
-# end
-
-function walk_traces(ch, node, revisit)
-    stack = [node]
+function walk_bottomup(ch, root, revisit = false)
+    leaves = filter(x -> isleaf(x[end]), tracepairs(root; revisit = revisit) |> collect)
+    tracequeue = map(x -> x[begin], leaves)
     visited = Set()
-    paths = [Int[]]
+    visitedtraces = Set()
+    while !isempty(tracequeue) 
+        orig_trace = popfirst!(tracequeue)
+        node = pluck(root, orig_trace)
+        trace = copy(orig_trace)
+        if !isempty(trace) 
+            pop!(trace)
+            push!(tracequeue, trace)
+        end
+        if visited!(node, visited, revisit) || visited!(orig_trace, visitedtraces) continue end 
+        put!(ch, node)
+    end 
+end
+
+function walk_traces(ch, root, revisit = false)
+    stack = Tuple{Vector{Int}, Any}[(Int[], root)]
+    visited = Set()
     while !isempty(stack)
-        node = pop!(stack)
-        path = pop!(paths)
+        path, node = pop!(stack)
         if visited!(node, visited, revisit) continue end 
         put!(ch, path)
         for (i,child) in enumerate(children(node))
-            push!(stack, child)
-            push!(paths, push!(copy(path), i))
+            push!(stack, (push!(copy(path), i), child))
         end 
     end
 end
 
-
-function walk_traces(ch, node, path = Int[])
-    put!(ch, path)
-    for (i, child) in enumerate(children(node))
-        walk_traces(ch, child, push!(copy(path), i))
-    end
-end
-
-function walk_tracepairs(ch, node, path = Int[])
-    put!(ch, (path, node))
-    for (i, child) in enumerate(children(node))
-        walk_tracepairs(ch, child, push!(copy(path), i))
+function walk_tracepairs(ch, root, revisit = false)
+    stack = Tuple{Vector{Int}, Any}[(Int[], root)]
+    visited = Set()
+    while !isempty(stack)
+        path, node = pop!(stack)
+        if visited!(node, visited, revisit) continue end 
+        put!(ch, (path, node))
+        for (i,child) in enumerate(children(node))
+            push!(stack, (push!(copy(path), i), child))
+        end 
     end
 end
 
@@ -325,6 +355,7 @@ end
 
 This creates a lazy iterator as a preorder depth-first search of your custom Taproot.
 In this iterator, parents are always iterated on before their children.
+Unlike usual preorder depth-first search, this one will iterate on rightmost children first before doing leftmost children. 
 
 # Usage
 
@@ -335,7 +366,7 @@ end
 collect(preorder(x)) <: Vector
 
 """
-preorder(taproot) = Channel(ch -> walk_preorder(ch, taproot)) 
+preorder(taproot; revisit = false) = Channel(ch -> walk_preorder(ch, taproot, revisit)) 
 
 """
     postorder(x)
@@ -352,23 +383,7 @@ end
 collect(postorder(x)) <: Vector
 
 """
-postorder(taproot) = Channel(ch -> walk_postorder(ch, taproot)) 
-
-"""
-    siblingorder(x)
-
-This creates a lazy iterator which first visits siblings of the same parents before moving on downwards in your custom Taproot. 
-
-# Usage
-
-for x in siblingorder(x)
-    print(x)
-end 
-
-collect(siblingorder(x)) <: Vector
-
-"""
-siblingorder(taproot) = Channel(ch -> siblingorder(ch, taproot)) 
+postorder(taproot; revisit = false) = Channel(ch -> walk_postorder(ch, taproot, revisit)) 
 
 """
     topdown(x)
@@ -385,7 +400,7 @@ end
 collect(topdown(x)) <: Vector
 
 """
-topdown(taproot) = Channel(ch -> walk_topdown(ch, taproot)) 
+topdown(taproot; revisit = false) = Channel(ch -> walk_topdown(ch, taproot, revisit)) 
 
 
 """
@@ -405,7 +420,7 @@ bottomup(x) <: Vector
 collect(bottomup(x)) <: Vector
 
 """
-bottomup(taproot) = reverse(collect(topdown(taproot)))
+bottomup(taproot; revisit = false) = Channel(ch -> walk_bottomup(ch, taproot, revisit)) 
 
 """
     leaves(x)
@@ -421,7 +436,7 @@ end
 collect(leaves(x)) <: Vector
 
 """
-leaves(taproot) = Iterators.filter(isleaf, postorder(taproot))
+leaves(taproot; revisit = false) = Iterators.filter(isleaf, postorder(taproot; revisit = revisit))
 
 """
     branches(x)
@@ -437,7 +452,7 @@ end
 collect(branches(x)) <: Vector
 
 """
-branches(taproot) = Iterators.filter(isbranch, postorder(taproot))
+branches(taproot; revisit = false) = Iterators.filter(isbranch, preorder(taproot; revisit = revisit))
 
 """
     traces(x)
@@ -445,7 +460,7 @@ branches(taproot) = Iterators.filter(isbranch, postorder(taproot))
 This creates a lazy iterator for all the traces (vectors of indices) needed to get from the root to one of the children. 
 This will always be in the preorder (depth-first search). 
 """
-traces(taproot) = Channel(ch -> walk_traces(ch, taproot))
+traces(taproot; revisit = false) = Channel(ch -> walk_traces(ch, taproot, revisit))
 
 """
     tracepairs(x)
@@ -453,7 +468,7 @@ traces(taproot) = Channel(ch -> walk_traces(ch, taproot))
 This creates a lazy iterator for all the traces and nodes of a taproot. 
 This will always be in the preorder (depth-first search).
 """
-tracepairs(taproot) = Channel(ch -> walk_tracepairs(ch, taproot))
+tracepairs(taproot; revisit = false) = Channel(ch -> walk_tracepairs(ch, taproot, revisit))
 
 function treeadjacency(t)
     top = topdown(t) |> collect
@@ -514,11 +529,12 @@ end
 findtraces(child, parent) = findtraces(x -> x == child, parent)
 
 """
-    pluck(parent, trace)
+    pluck(parent, trace[, default = nothing])
 
 This gets the node which matches a trace. A trace is simply an iterable set of children indices.
 """
-pluck(parent, trace) = foldl((current, idx) -> children(current)[idx], trace; init = parent)
+pluck(parent, trace::Vector{Int}; default = nothing) = try foldl((current, idx) -> children(current)[idx], trace; init = parent) catch default end 
+pluck(parent, trace...; default = nothing) = pluck(parent, collect(trace); default = default)
 
 """
     graft!(parent, trace, value)
@@ -534,6 +550,44 @@ function graft!(parent, trace, value)
     return parent 
 end 
 
+struct UprootHelper 
+    parent
+    node
+    traces 
+end 
+function children(node::UprootHelper)
+    child_list = []
+    traces = filter(x -> !isempty(x), node.traces)
+    current_traces = unique!(map(t -> t[begin:(end - 1)], traces))
+    nodes = map(t -> pluck(node.parent, t), current_traces)
+    node_traces_lookup = foldl(zip(current_traces, nodes), init = Dict()) do acc, (trace, node)
+        push!(get!(acc, node, []), trace)
+        acc
+    end
+    for child in keys(node_traces_lookup) 
+        push!(child_list, UprootHelper(
+            node.parent,
+            child,
+            node_traces_lookup[child]
+        ))
+    end 
+    return child_list
+end 
+function data(node::UprootHelper)
+    node
+end
+
+"""
+    uproot(child, parent)
+
+Gets a child in a taproot, and slices it and all parents out of the taproot, then reverses directions of all the arrows.
+"""
+function uproot(child, parent)
+    traces = findtraces(child, parent)
+    root = UprootHelper(parent, child, traces)
+    tapout((data,children) -> setchildren!(copy(data), children), tapin(root))
+end
+
 """
     getatkeys(indexable_struct, trace, default_value)
 
@@ -546,17 +600,8 @@ dict = Dict(1 => Dict(:a => Dict(1 => Dict(:a => "Finally here"))))
 getatkeys(dict, (1,:a,1,:a)) == "Finally here"
 
 """
-function getatkeys(indexable_struct, trace, default = nothing)
-    current = indexable_struct
-    for idx in trace 
-        try
-            current = current[idx]
-        catch 
-            return default
-        end 
-    end 
-    return current 
-end
+getatkeys(parent, trace::Vector; default = nothing) = try foldl((current, idx) -> current[idx], trace; init = parent) catch default end 
+getatkeys(parent, trace...; default = nothing) = getatkeys(parent, collect(trace); default = default)
 
 """
     setatkeys!(indexable_struct, trace, value)
