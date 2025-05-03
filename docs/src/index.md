@@ -21,7 +21,7 @@ That being said, many structures in the world form Taproots:
 
 ## Installation 
 
-In the julia REPL, type ] and the `add Taproots`.
+In the Julia REPL, type ] and the `add Taproots`.
 
 ## How to use
 
@@ -38,11 +38,11 @@ end
 Taproots.children(x::MyType) = x.children 
 ```
 
-Notice that `Taproots.children` is a function and as such there's no requirement that you're storing the children (like the example above does). 
+Notice that `Taproots.children` is a function and as such there's no requirement that you're storing the children (like the example above does). You can look it up from a key or from an upvalue. 
 
-We're done! You now have access to (almost) all the functionality in Taproots.jl. 
+We're done! You now have access to (almost) all the functionality in `Taproots.jl`. 
 
-Also worth noting: your struct doesn't need to be mutable. However, it'll simplify things for this example.
+Also worth noting: your struct doesn't need to be mutable. However, it'll simplify things for this example a bit later on. 
 
 Now let's say you create some nastily nested structure: 
 
@@ -139,6 +139,15 @@ Taproots.setdata!(node::MyType, data) = (node.some_data = data; node) # provide 
 Taproots.setchildren!(node::MyType, children::Vector) = (node.children = children; node) # provide a way to set children in your node. Once done, it must return `node`. This one unlocks `prune` and variants. 
 ```
 
+!!! tip
+	`Taproots.data` is an easy one to implement, but it's pretty useless unless you also implement the other functions. 
+
+	`Taproots.setdata!` is also easy to implement -- because it doesn't matter if your type is mutable or immutable. You can modify it (and then return the node) if it's mutable. If immutable, just return a newly created node with modified data.
+
+	`Taproots.setchildren!` can sometimes be a bit trickier to implement -- it requires us to actually mutate the way we get children.
+
+	Remember that at any stage you can check whether your `Taproots.data` and `Taproots.setdata!` work just by calling them on each other. E.g. `setdata!(taproot, data(taproot))` needs to look the same as the original `taproot`.
+
 Now we get the *good* stuff. We can map every node's data while keeping the structure sparkly. 
 
 ```julia
@@ -148,7 +157,7 @@ tapmap(x -> x isa String ? uppercase(x) : x, my_data)
 This gives us something like this: 
 
 ```julia
-my_data = MyType("THE ROOT", [
+MyType("THE ROOT", [
 	MyType("SOME OTHER DATA", []),
 	MyType("I CAN NEST DATA HERE", [
 		MyType("SUCH NESTED, MUCH WOW", [])
@@ -161,11 +170,9 @@ my_data = MyType("THE ROOT", [
 ])
 ```
 
-!!! Warning
-```
-`x` comes straight from `Taproots.data(node)`. `x` itself is not a node, and as such the strings inside `MyType` also get converted. Very awesome, but be careful!
-If you prefer changing the entire nodes themselves, then: 1) ensure `Taproots.data(node::MyType) = node`; or 2) use the regular iterators such as `postorder(node)` which returns entire nodes.
-```
+!!! warning
+	`x` comes straight from `Taproots.data(node)`. `x` itself is not a node, and as such the strings inside `MyType` also get converted. Very awesome, but be careful!
+	If you prefer changing the entire nodes themselves, then: 1) ensure `Taproots.data(node::MyType) = node`; or 2) use the regular iterators such as `postorder(node)` which returns entire nodes.
 
 We can also get rid of all the nodes we don't like (... except the root, topmost node. Prune won't get rid of that one, and for good reason.)
 
@@ -198,7 +205,16 @@ branchprune!(f, taprootius) # get rid of branches which do not satisfy f in plac
 branchprune(f, taprootius) # deepcopy and then get rid of branches which do not satisfy f in place
 ```
 
-Now from time to time you may not be able to `setdata!` or `setchildren!` because you're dealing with an immutable struct. In that case, just make `setdata!` and `setchildren!` reconstruct your immutable type. 
+You also get other handy functions by implementing those functions:
+
+```julia
+graft!(taproot, trace, node) # Where `pluck` is get, this is set. This sets the trace to `node`. Only grafts that one trace, not other traces (which might lead to the same node)
+uproot!(root, child) # pluck out `child` and ALL its parents. Then reverse the directions of the arrows. This is the only way to reverse arrows in `Taproots.jl`
+```
+
+!!! tip 
+	My suggestion would be to try create a `Base.copy` implementation for your type if it's not obvious and not simply constructed from a constructor of its fields. 
+	We use `Base.copy` if it's available when doing all the non-modifying variants of the functions above. 
 
 
 ## Built-in taproots

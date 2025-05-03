@@ -26,9 +26,15 @@
 	end
 
 	@testset "Uproot works" begin
-		new_root = uproot(collider, pluck(collider, 1, 1))
+		coll = MoreFlexiTaproot("Collider", [])
+		spec_coll = MoreFlexiTaproot("The top", [
+			MoreFlexiTaproot("Go left", [coll, "Loner"]),
+			MoreFlexiTaproot("Go right", [coll]),
+		])
+
+		new_root = uproot(spec_coll, pluck(spec_coll, 1, 1))
 		@test pluck(new_root, 2, 1).data == "The top"
 		@test length(collect(postorder(new_root))) == 4
-		@test length(collect(postorder(collider))) == 5
+		@test length(collect(postorder(spec_coll))) == 5
 	end
 end

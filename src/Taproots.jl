@@ -639,6 +639,8 @@ function _copy_or_reconstruct(x)
         return x
     elseif x isa Bool
         return x
+    elseif x isa Symbol
+        return x
     elseif ismutable(x)
         fieldvals = getfield.(Ref(x), 1:fieldcount(typeof(x)))
         try
@@ -656,21 +658,41 @@ function _copy_or_reconstruct(x)
     end
 end
 
-function _localupd!(condition, f, node, visited, modify)
-    if modify && ismutable(node) && node ∈ visited return node end
-    if modify push!(visited, node) end
-    if !modify node = _copy_or_reconstruct(node) end
-    return condition(node) ? setdata!(node, f(data(node))) : node
+function _applyif!(condition, f, node, visited)
+    if ismutable(node) && node ∈ visited return node end # don't do the same thing to a mutable struct twice
+    push!(visited, node)
+    return condition(node) ? setdata!(node, f(data(node))) : node # conditionally apply f
 end
 
-function maphelper!(condition, f, taproot, modify = true)
+function maphelper!(condition, f, taproot)
     visited = Set()
-    for node in postorder(taproot)
-        setchildren!(node, _localupd!.(condition, f, children(node), [visited], modify))
+    post = collect(postorder(taproot))
+    node_map = foldl(post; init = Dict()) do acc, node
+        get!(acc, node, _applyif!(condition, f, node, visited))
+        acc
     end
-    return _localupd!(condition, f, taproot, visited, modify)
+    for node in post
+        new_node = get!(node_map, node, node)
+        new_children = map(child -> get!(node_map, child, child), children(node))
+        setchildren!(new_node, new_children)
+    end
+    return get!(node_map, taproot, taproot)
 end
-maphelper(f, taproot, condition) = maphelper!(condition, f, taproot, false)
+
+function maphelper(condition, f, taproot) 
+    visited = Set()
+    post = collect(postorder(taproot))
+    node_map = foldl(post; init = Dict()) do acc, node
+        get!(acc, node, _applyif!(condition, f, _copy_or_reconstruct(node), visited))
+        acc
+    end
+    for node in post
+        new_node = get!(node_map, node, node)
+        new_children = map(child -> get!(node_map, child, child), children(node))
+        setchildren!(new_node, new_children)
+    end
+    return get!(node_map, taproot, taproot)
+end 
 
 """
     tapmap!(f::Function, taproot)
@@ -678,7 +700,7 @@ maphelper(f, taproot, condition) = maphelper!(condition, f, taproot, false)
 Modify all the data of every node in a taproot in place. `f` only acts on the data in each node.
 This can handle mutable and immutable trees.
 """
-tapmap!(f::Function, taproot) = maphelper!(f, taproot, x -> true)
+tapmap!(f::Function, taproot) = maphelper!(x -> true, f, taproot)
 
 """
     tapmap(f::Function, taproot)
@@ -686,7 +708,7 @@ tapmap!(f::Function, taproot) = maphelper!(f, taproot, x -> true)
 Deepcopy a taproot and then modify its nodes in place. `f` only acts on the data in each node.
 This can handle mutable and immutable trees.
 """
-tapmap(f::Function, taproot) = maphelper(f, taproot, x -> true)
+tapmap(f::Function, taproot) = maphelper(x -> true, f, taproot)
 
 """
     tapmapif!(condition::Function, f::Function, taproot)
@@ -694,7 +716,7 @@ tapmap(f::Function, taproot) = maphelper(f, taproot, x -> true)
 Modifies nodes in place if the entire node satisfies `condition`. `f` only acts on the data in each node.
 This can handle mutable and immutable trees.
 """
-tapmapif!(condition::Function, f::Function, taproot) = maphelper!(f, taproot, condition)
+tapmapif!(condition::Function, f::Function, taproot) = maphelper!(condition, f, taproot)
 
 """
     tapmapif(condition::Function, f::Function, taproot)
@@ -702,21 +724,21 @@ tapmapif!(condition::Function, f::Function, taproot) = maphelper!(f, taproot, co
 Deepcopy a taproot and then modify its nodes in place if they satisfy `condition`. `f` only acts on the data in each node.
 This can handle mutable and immutable trees.
 """
-tapmapif(condition::Function, f::Function, taproot) = maphelper!(f, taproot, condition)
+tapmapif(condition::Function, f::Function, taproot) = maphelper(condition, f, taproot)
 
 """
     leafmap!(f::Function, taproot)
 
 Modify the leaves of a taproot in place.
 """
-leafmap!(f::Function, taproot) = maphelper!(f, taproot, isleaf)
+leafmap!(f::Function, taproot) = maphelper!(isleaf, f, taproot)
 
 """
     leafmap(f::Function, taproot)
 
 Deepcopy a taproot and then modify its leaves in place.
 """
-leafmap(f::Function, taproot) = leafmap!(f, deepcopy(taproot))
+leafmap(f::Function, taproot) = maphelper(isleaf, f, taproot)
 
 
 """
@@ -724,20 +746,20 @@ leafmap(f::Function, taproot) = leafmap!(f, deepcopy(taproot))
 
 Modify the branches of a taproot in place without destroying links to children.
 """
-branchmap!(f::Function, taproot) = maphelper!(f, taproot, isbranch)
+branchmap!(f::Function, taproot) = maphelper!(isbranch, f, taproot)
 
 """
     branchmap(f::Function, taproot)
 
 Deepcopy a taproot and then modify its branches in place without destroying links to children.
 """
-branchmap(f::Function, taproot) = branchmap!(f, deepcopy(taproot))
+branchmap(f::Function, taproot) = maphelper(isbranch, f, taproot)
 
 
 function prunehelper!(condition, f, taproot)
     for node in preorder(taproot)
         setchildren!(node,
-            deleteat!(children(taproot), findall(x -> !f(x) && condition(x), children(taproot)))
+            deleteat!(children(taproot), findall(x -> !f(x) && condition(x), children(node)))
         )
     end
     return taproot
@@ -747,7 +769,7 @@ function prunehelper(condition, f, taproot)
     main_node = _copy_or_reconstruct(taproot)
     for node in preorder(main_node)
         setchildren!(node,
-            deleteat!(_copy_or_reconstruct.(children(taproot)), findall(x -> !f(x) && condition(x), children(taproot)))
+            deleteat!(_copy_or_reconstruct.(children(taproot)), findall(x -> !f(x) && condition(x), children(node)))
         )
     end
     return main_node
@@ -760,7 +782,7 @@ end
 This removes any children who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that child. This is similar to `filter`.
 However, you cannot prune the root of a taproot.
 """
-prune!(f::Function, taproot) = prunehelper!(f, taproot, x -> true)
+prune!(f::Function, taproot) = prunehelper!(x -> true, f, taproot)
 
 """
     prune(f::Function, taproot)
@@ -768,7 +790,7 @@ prune!(f::Function, taproot) = prunehelper!(f, taproot, x -> true)
 This deepcopies the taproot and then removes any children who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that child. This is similar to `filter`.
 However, you cannot prune the root of a taproot.
 """
-prune(f::Function, taproot) = prunehelper(f, taproot, x -> true)
+prune(f::Function, taproot) = prunehelper(x -> true, f, taproot)
 
 """
     leafprune!(f::Function, taproot)
@@ -776,7 +798,7 @@ prune(f::Function, taproot) = prunehelper(f, taproot, x -> true)
 This removes any leaves of the taproot who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`.
 However, you cannot prune the root of a taproot.
 """
-leafprune!(f::Function, taproot) = prunehelper!(f, taproot, isleaf)
+leafprune!(f::Function, taproot) = prunehelper!(isleaf, f, taproot)
 
 """
     prune(f::Function, taproot)
@@ -784,7 +806,7 @@ leafprune!(f::Function, taproot) = prunehelper!(f, taproot, isleaf)
 This deepcopies the taproot and then removes any leaves who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`.
 However, you cannot prune the root of a taproot.
 """
-leafprune(f::Function, taproot) = prunehelper(f, taproot, isleaf)
+leafprune(f::Function, taproot) = prunehelper(isleaf, f, taproot)
 
 """
     branchprune!(f::Function, taproot)
@@ -792,7 +814,7 @@ leafprune(f::Function, taproot) = prunehelper(f, taproot, isleaf)
 This removes any leaves of the taproot who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`.
 However, you cannot prune the root of a taproot.
 """
-branchprune!(f::Function, taproot) = prunehelper!(f, taproot, isbranch)
+branchprune!(f::Function, taproot) = prunehelper!(isbranch, f, taproot)
 
 """
     prune(f::Function, taproot)
@@ -800,7 +822,7 @@ branchprune!(f::Function, taproot) = prunehelper!(f, taproot, isbranch)
 This deepcopies the taproot and then removes any leaves who do not satisfy the criteria given by `f` in place. `f` evaluating to true will keep that leaf. This is similar to `filter`.
 However, you cannot prune the root of a taproot.
 """
-branchprune(f::Function, taproot) = prunehelper(f, taproot, isbranch)
+branchprune(f::Function, taproot) = prunehelper(isbranch, f, taproot)
 
 ###########################################################################
 # Visualisation
