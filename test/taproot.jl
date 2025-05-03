@@ -15,5 +15,5 @@
 
 	@test orig_value isa MyType
 	@test length(collect(preorder(orig_value))) == length(collect(preorder(my_type)))
-	
+
 end

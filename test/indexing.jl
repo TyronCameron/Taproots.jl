@@ -24,4 +24,11 @@
 		setatkeys!(dict_copy, (1, :x), 10)
 		@test getatkeys(dict_copy, (1, :x)) == 10
 	end
+
+	@testset "Uproot works" begin
+		new_root = uproot(collider, pluck(collider, 1, 1))
+		@test pluck(new_root, 2, 1).data == "The top"
+		@test length(collect(postorder(new_root))) == 4
+		@test length(collect(postorder(collider))) == 5
+	end
 end

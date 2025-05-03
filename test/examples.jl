@@ -3,26 +3,29 @@
 # Set up structs that players might use
 ###########################################################################
 
-struct MyType 
+struct MyType
 	values::Vector
-end 
+end
 Taproots.children(x::MyType) = x.values
 
-struct MoreFlexiTaproot
+mutable struct MoreFlexiTaproot
 	data
 	children
 end
 Taproots.children(x::MoreFlexiTaproot) = x.children
 Base.show(io::IO, x::MoreFlexiTaproot) = print(io, "MoreFlexiTaproot(", x.data, ")+$(length(x.children)) children")
+Taproots.data(x::MoreFlexiTaproot) = x.data
+Taproots.setdata!(x::MoreFlexiTaproot, data) = (x.data = data; node)
+Taproots.setchildren!(x::MoreFlexiTaproot, children::Vector) = (x.children = children; x)
 
 struct MyLeafType
 	x
-end 
+end
 
 mutable struct BinaryTree
-	left 
-	right 
-end 
+	left
+	right
+end
 Taproots.children(x::BinaryTree) = (x.left, x.right)
 
 ###########################################################################
