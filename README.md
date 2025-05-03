@@ -2,8 +2,10 @@
 
 # Taproots.jl
 
+I made this library for personal use but I was getting annoyed with not being able to `Pkg.add("Taproots")`. So now you can use it too, if you want. 
+
 This library helps you traverse your own nested structs and data in easy peasy ways! 
-This library is inspired by AbstractTrees.jl. 
+This library is inspired by `AbstractTrees.jl`. 
 
 Check out the [docs](https://tyroncameron.github.io/Taproots.jl/dev/) for more info. 
 
@@ -21,7 +23,7 @@ dict = Dict(
 	),
 	:d => "final_data"
 )
-leafmap!(uppercase, dict)
+leafmap(uppercase, dict)
 ```
 
 This gives us something that looks like this: 
