@@ -111,8 +111,15 @@ By default, `children(node)` will return an empty array, meaning `Taproot.jl` co
 Simply define `Taproots.children(node::MyType) = ...`
 Where the `...` returns a vector of the things you want to traverse.
 
+# When a connector is supplied
+
+You can call `children([connector::Function,], node)`
+
+The connector is a function which will simply filter the list of children. This need not be overridden
+
 """
 children(node) = []
+children(connector::Function, node) = filter(connector, children(node))
 children(expr::Expr) = expr.args
 children(node::Dict) = values(node) |> collect
 children(node::Vector) = node
@@ -227,8 +234,8 @@ end
 Tells you whether `potential_child` is a child of `parent`. This function acts recursively and is not the same as doing `potential_child ∈ children(parent)`.
 Time complexity of this is ~linear in the number of edges in your DAG underneath the `parent`, so use with care for large DAGs.
 """
-function ischild(potential_child, parent)
-    nodes = preorder(parent)
+function ischild(potential_child, parent; revisit = false, connector = x -> true)
+    nodes = preorder(parent; revisit = revisit, connector = connector)
     take!(nodes)
     for child in nodes
         if potential_child == child return true end
@@ -243,7 +250,7 @@ Tells you whether `potential_parent` is a parent of `child`. This function acts 
 Time complexity of this is ~linear in the number of edges in your DAG underneath the `potential_parent`, so use with care for large DAGs.
 
 """
-isparent(potential_parent, child) = ischild(child, potential_parent)
+isparent(potential_parent, child; revisit = false, connector = x -> true) = ischild(child, potential_parent; revisit = revisit, connector = connector)
 
 """
     isleaf(node)::Bool
@@ -268,18 +275,18 @@ function visited!(node, visited::Set, revisit = false)
     return false
 end
 
-function walk_preorder(ch, root, revisit = false)
+function walk_preorder(ch, root; revisit = false, connector = x -> true)
     stack = Any[root]
     visited = Set()
     while !isempty(stack)
         node = pop!(stack)
         if visited!(node, visited, revisit) continue end
         put!(ch, node)
-        push!.([stack], children(node))
+        push!.([stack], children(connector, node))
     end
 end
 
-function walk_postorder(ch, root, revisit = false)
+function walk_postorder(ch, root; revisit = false, connector = x -> true)
     stack = Tuple{Any, Bool}[(root, false)]
     visited = Set()
     while !isempty(stack)
@@ -289,29 +296,30 @@ function walk_postorder(ch, root, revisit = false)
         else
             if visited!(node, visited, revisit) continue end
             push!(stack, (node, true))
-            for child in children(node)
+            for child in children(connector, node)
                 push!(stack, (child, false))
             end
         end
     end
 end
 
-function walk_topdown(ch, root, revisit = false)
+function walk_topdown(ch, root; revisit = false, connector = x -> true)
     queue = Any[root]
     visited = Set()
     while !isempty(queue)
         node = popfirst!(queue)
         if visited!(node, visited, revisit) continue end
         put!(ch, node)
-        append!(queue, children(node))
+        append!(queue, children(connector, node))
     end
 end
 
-function walk_bottomup(ch, root, revisit = false)
-    leaves = filter(x -> isleaf(x[end]), tracepairs(root; revisit = revisit) |> collect)
+function walk_bottomup(ch, root; revisit = false, connector = x -> true)
+    leaves = filter(x -> isleaf(x[end]), tracepairs(root; revisit = true, connector = x -> !ischild(x, x; revisit = true) && connector(x)) |> collect)
     tracequeue = map(x -> x[begin], leaves)
     visited = Set()
     visitedtraces = Set()
+    childrenvisited = Set()
     while !isempty(tracequeue)
         orig_trace = popfirst!(tracequeue)
         node = pluck(root, orig_trace)
@@ -320,32 +328,36 @@ function walk_bottomup(ch, root, revisit = false)
             pop!(trace)
             push!(tracequeue, trace)
         end
-        if visited!(node, visited, revisit) || visited!(orig_trace, visitedtraces) continue end
+        if any(child -> child ∉ childrenvisited, children(connector, node)) continue end 
+        node_visited = visited!(node, visited, revisit)
+        trace_visited = visited!(orig_trace, visitedtraces)
+        if node_visited || trace_visited continue end # list separately so we don't shortcircuit
+        push!(childrenvisited, node)
         put!(ch, node)
     end
 end
 
-function walk_traces(ch, root, revisit = false)
+function walk_traces(ch, root; revisit = false, connector = x -> true)
     stack = Tuple{Vector{Int}, Any}[(Int[], root)]
     visited = Set()
     while !isempty(stack)
         path, node = pop!(stack)
         if visited!(node, visited, revisit) continue end
         put!(ch, path)
-        for (i,child) in enumerate(children(node))
+        for (i,child) in enumerate(children(connector, node))
             push!(stack, (push!(copy(path), i), child))
         end
     end
 end
 
-function walk_tracepairs(ch, root, revisit = false)
+function walk_tracepairs(ch, root; revisit = false, connector = x -> true)
     stack = Tuple{Vector{Int}, Any}[(Int[], root)]
     visited = Set()
     while !isempty(stack)
         path, node = pop!(stack)
         if visited!(node, visited, revisit) continue end
         put!(ch, (path, node))
-        for (i,child) in enumerate(children(node))
+        for (i,child) in enumerate(children(connector, node))
             push!(stack, (push!(copy(path), i), child))
         end
     end
@@ -367,7 +379,7 @@ end
 collect(preorder(x)) <: Vector
 
 """
-preorder(taproot; revisit = false) = Channel(ch -> walk_preorder(ch, taproot, revisit))
+preorder(taproot; revisit = false, connector = x -> true) = Channel(ch -> walk_preorder(ch, taproot; revisit = revisit, connector = connector))
 
 """
     postorder(x)
@@ -384,7 +396,7 @@ end
 collect(postorder(x)) <: Vector
 
 """
-postorder(taproot; revisit = false) = Channel(ch -> walk_postorder(ch, taproot, revisit))
+postorder(taproot; revisit = false, connector = x -> true) = Channel(ch -> walk_postorder(ch, taproot; revisit = revisit, connector = connector))
 
 """
     topdown(x)
@@ -401,7 +413,7 @@ end
 collect(topdown(x)) <: Vector
 
 """
-topdown(taproot; revisit = false) = Channel(ch -> walk_topdown(ch, taproot, revisit))
+topdown(taproot; revisit = false, connector = x -> true) = Channel(ch -> walk_topdown(ch, taproot; revisit = revisit, connector = connector))
 
 
 """
@@ -421,7 +433,7 @@ bottomup(x) <: Vector
 collect(bottomup(x)) <: Vector
 
 """
-bottomup(taproot; revisit = false) = Channel(ch -> walk_bottomup(ch, taproot, revisit))
+bottomup(taproot; revisit = false, connector = x -> true) = Channel(ch -> walk_bottomup(ch, taproot; revisit = revisit, connector = connector))
 
 """
     leaves(x)
@@ -437,7 +449,7 @@ end
 collect(leaves(x)) <: Vector
 
 """
-leaves(taproot; revisit = false) = Iterators.filter(isleaf, postorder(taproot; revisit = revisit))
+leaves(taproot; revisit = false, connector = x -> true) = Iterators.filter(isleaf, postorder(taproot; revisit = revisit, connector = connector))
 
 """
     branches(x)
@@ -453,7 +465,7 @@ end
 collect(branches(x)) <: Vector
 
 """
-branches(taproot; revisit = false) = Iterators.filter(isbranch, preorder(taproot; revisit = revisit))
+branches(taproot; revisit = false, connector = x -> true) = Iterators.filter(isbranch, preorder(taproot; revisit = revisit, connector = connector))
 
 """
     traces(x)
@@ -461,7 +473,7 @@ branches(taproot; revisit = false) = Iterators.filter(isbranch, preorder(taproot
 This creates a lazy iterator for all the traces (vectors of indices) needed to get from the root to one of the children.
 This will always be in the preorder (depth-first search).
 """
-traces(taproot; revisit = false) = Channel(ch -> walk_traces(ch, taproot, revisit))
+traces(taproot; revisit = false, connector = x -> true) = Channel(ch -> walk_traces(ch, taproot; revisit = revisit, connector = connector))
 
 """
     tracepairs(x)
@@ -469,7 +481,7 @@ traces(taproot; revisit = false) = Channel(ch -> walk_traces(ch, taproot, revisi
 This creates a lazy iterator for all the traces and nodes of a taproot.
 This will always be in the preorder (depth-first search).
 """
-tracepairs(taproot; revisit = false) = Channel(ch -> walk_tracepairs(ch, taproot, revisit))
+tracepairs(taproot; revisit = false, connector = x -> true) = Channel(ch -> walk_tracepairs(ch, taproot; revisit = revisit, connector = connector))
 
 function treeadjacency(t)
     top = topdown(t) |> collect
@@ -505,8 +517,8 @@ adjacencymatrix(taproot) = dagadjacency(taproot)
 This is a slower (~linear) algorithm to find the first value where `f` returns true. It returns a vector which can be used to index into a nested data struct.
 You can index into your nested data structure using pluck.
 """
-function findtrace(matcher::Function, parent)
-    for (trace, node) in tracepairs(parent)
+function findtrace(matcher::Function, parent; connector = x -> true)
+    for (trace, node) in tracepairs(parent; connector = connector)
         if matcher(node) return trace end
     end
     return nothing
@@ -520,14 +532,14 @@ findtrace(child, parent) = findtrace(x -> x == child, parent)
 This is a slower (~linear) algorithm to find all values where `f` returns true. It returns a vector which can be used to index into a nested data struct.
 You can index into your nested data structure using pluck.
 """
-function findtraces(matcher::Function, parent)
+function findtraces(matcher::Function, parent; connector = x -> true)
     traces = []
-    for (trace, node) in tracepairs(parent; revisit = true)
+    for (trace, node) in tracepairs(parent; revisit = true, connector = connector)
         if matcher(node) push!(traces, trace) end
     end
     return traces
 end
-findtraces(child, parent) = findtraces(x -> x == child, parent)
+findtraces(child, parent; connector = x -> true) = findtraces(x -> x == child, parent; connector = connector)
 
 """
     pluck(parent, trace[, default = nothing])

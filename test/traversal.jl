@@ -23,6 +23,13 @@ iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)
 	@testset "bottomup" begin
 		collider_bottomup_ans = ["Collider", "Loner", "Go right",  "Go left", "The top"]
 		@test all(bottomup(collider) |> to_compare .== collider_bottomup_ans)
+
+		different_heights_ans = ["B", "Leaf", "A", "Top"]
+		@info "-------------------------------------------------------------"
+		@info "Left hand side = $(bottomup(different_heights) |> to_compare)"
+		@info "Right hand side = $(different_heights_ans)"
+		@info "-------------------------------------------------------------"
+		@test all(bottomup(different_heights) |> to_compare .== different_heights_ans)
 	end
 
 	@testset "leaves" begin
@@ -58,10 +65,10 @@ end
 					push!(lengths, length(collect(iter(taproot))))
 				end
 				valid = length(unique(lengths)) == 1
-				@debug "------------------------------------"
-				@debug "Taproot = $taproot"
-				@debug "Lengths = $(zip(iters, lengths) |> collect)"
-				@debug "------------------------------------"
+				@info "------------------------------------"
+				@info "Taproot = $taproot"
+				@info "Lengths = $(zip(iters, lengths) |> collect)"
+				@info "------------------------------------"
 				if !valid break end
 			end
 			valid
@@ -78,10 +85,10 @@ end
 					push!(lengths, length(collect(iter(taproot; revisit = true))))
 				end
 				valid = length(unique(lengths)) == 1
-				@debug "------------------------------------"
-				@debug "Revisit is set off explicitly. Taproot = $taproot"
-				@debug "Lengths = $(zip(iters, lengths) |> collect)"
-				@debug "------------------------------------"
+				@info "------------------------------------"
+				@info "Revisit is set off explicitly. Taproot = $taproot"
+				@info "Lengths = $(zip(iters, lengths) |> collect)"
+				@info "------------------------------------"
 				if !valid break end
 			end
 			valid
@@ -96,15 +103,16 @@ end
 		@test length(preorder(deepdag) |> collect)	== ans
 	end
 
-	@debug "Starting cycles. If the program hangs, that's a problem"
+	@info "Starting cycles. If the program hangs, that's a problem"
 	@testset "Can handle cycles" begin 
 		for iter in iters
+			@info "Testing $iter"
 			value = 0
 			for (i, v) in enumerate(iter(cycle))
 				value = i
 				if i > 10000 break end
 			end 
-			@test 0 < value <= 100
+			@test 0 <= value <= 100 # 0 allowed for bottomup where there are no leaves
 		end
 	end
 
