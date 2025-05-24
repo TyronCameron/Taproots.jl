@@ -314,9 +314,23 @@ function walk_topdown(ch, root; revisit = false, connector = x -> true)
     end
 end
 
+function _not_cycle(node, seen)
+    cycle = ischild(node, node; revisit = true) && node ∈ seen
+    push!(seen, node)
+    return !cycle
+end
+
+function _get_all_leaves_no_cycles(root; connector = x -> true)
+    leaftraces = []
+    seen = Set()
+    for (trace, node) in tracepairs(root; revisit = true, connector = x -> _not_cycle(x, seen) && connector(x))
+        isleaf(node) && push!(leaftraces, trace)
+    end 
+    return leaftraces
+end
+
 function walk_bottomup(ch, root; revisit = false, connector = x -> true)
-    leaves = filter(x -> isleaf(x[end]), tracepairs(root; revisit = true, connector = x -> !ischild(x, x; revisit = true) && connector(x)) |> collect)
-    tracequeue = map(x -> x[begin], leaves)
+    tracequeue = _get_all_leaves_no_cycles(root; connector = connector)
     visited = Set()
     visitedtraces = Set()
     childrenvisited = Set()
