@@ -66,10 +66,10 @@ end
 					push!(lengths, length(collect(iter(taproot))))
 				end
 				valid = length(unique(lengths)) == 1
-				@info "------------------------------------"
-				@info "Taproot = $taproot"
-				@info "Lengths = $(zip(iters, lengths) |> collect)"
-				@info "------------------------------------"
+				@debug "------------------------------------"
+				@debug "Taproot = $taproot"
+				@debug "Lengths = $(zip(iters, lengths) |> collect)"
+				@debug "------------------------------------"
 				if !valid break end
 			end
 			valid

@@ -244,7 +244,7 @@ end
 ### Topdown
 
 @resumable function walk(::Type{Topdown}, pathset, eltype, children, connector, root)
-    queue = QueueFrontier{NamedTuple}([initshoot(eltype, root)], 1)
+    queue = QueueFrontier{Union{<:NamedTuple, Nothing}}([initshoot(eltype, root)], 1)
     while !isempty(queue)
         shoot, node, level = take!(queue)
         if !visitnode(pathset, node) continue end 

@@ -60,8 +60,8 @@ Base.isempty(frontier::PostorderStackFrontier) = isempty(frontier.next)
 # Minimal Queue 
 #─────────────────────────────────────────────────────────────────────────────
 
-mutable struct QueueFrontier{T}
-    next::Vector{Union{T, Nothing}}
+mutable struct QueueFrontier{T} <: Frontier 
+    next::Vector{T}
     currentidx::Int
 end
 
