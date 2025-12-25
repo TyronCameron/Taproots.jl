@@ -66,10 +66,10 @@ end
 					push!(lengths, length(collect(iter(taproot))))
 				end
 				valid = length(unique(lengths)) == 1
-				@debug "------------------------------------"
-				@debug "Taproot = $taproot"
-				@debug "Lengths = $(zip(iters, lengths) |> collect)"
-				@debug "------------------------------------"
+				@info "------------------------------------"
+				@info "Taproot = $taproot"
+				@info "Lengths = $(zip(iters, lengths) |> collect)"
+				@info "------------------------------------"
 				if !valid break end
 			end
 			valid
@@ -104,15 +104,16 @@ end
 		@test length(preorder(deepdag) |> collect)	== ans
 	end
 
-	@debug "Starting cycles. If the program hangs, that's a problem"
+	@info "Starting cycles. If the program hangs, that's a problem"
 	@testset "Can handle cycles" begin 
 		for iter in iters
+			@info "Testing $iter"
 			value = 0
 			for (i, v) in enumerate(iter(cycle))
 				value = i
 				if i > 10000 break end
 			end 
-			@test 0 < value <= 100
+			@test 0 <= value <= 100 # 0 allowed for bottomup where there are no leaves
 		end
 	end
 
