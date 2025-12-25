@@ -1,4 +1,4 @@
-using Taproots, Test
+using Taproots, Test, Aqua 
 
 include(joinpath(@__DIR__, "examples.jl"))
 
@@ -14,3 +14,4 @@ include(joinpath(@__DIR__, "indexing.jl"))
 include(joinpath(@__DIR__, "adjacency.jl"))
 include(joinpath(@__DIR__, "modification.jl"))
 
+Aqua.test_all(Taproots)

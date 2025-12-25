@@ -22,7 +22,7 @@ iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)
 
 	@testset "bottomup" begin
 		collider_bottomup_ans = ["Collider", "Loner", "Go right",  "Go left", "The top"]
-		@info bottomup(collider) |> to_compare
+		@debug bottomup(collider) |> to_compare
 		@test all(bottomup(collider) |> to_compare .== collider_bottomup_ans)
 	end
 
@@ -79,10 +79,10 @@ end
 					push!(lengths, length(collect(iter(taproot; pathset = AllPaths))))
 				end
 				valid = length(unique(lengths)) == 1
-				@info "------------------------------------"
-				@info "Revisit is set off explicitly. Taproot = $taproot"
-				@info "Lengths = $(zip(iters, lengths) |> collect)"
-				@info "------------------------------------"
+				@debug "------------------------------------"
+				@debug "Revisit is set off explicitly. Taproot = $taproot"
+				@debug "Lengths = $(zip(iters, lengths) |> collect)"
+				@debug "------------------------------------"
 				if !valid break end
 			end
 			valid
