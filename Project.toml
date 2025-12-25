@@ -1,6 +1,6 @@
 name = "Taproots"
 uuid = "6cca9763-2e92-47b9-bf40-ccfe60418944"
-version = "0.1.0"
+version = "0.3.0"
 authors = ["TyronCameron <tyron.luke.cameron@gmail.com>"]
 
 [deps]
