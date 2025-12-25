@@ -24,6 +24,13 @@ iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)
 		collider_bottomup_ans = ["Collider", "Loner", "Go right",  "Go left", "The top"]
 		@debug bottomup(collider) |> to_compare
 		@test all(bottomup(collider) |> to_compare .== collider_bottomup_ans)
+
+		different_heights_ans = ["B", "Leaf", "A", "Top"]
+		@debug "-------------------------------------------------------------"
+		@debug "Left hand side = $(bottomup(different_heights) |> to_compare)"
+		@debug "Right hand side = $(different_heights_ans)"
+		@debug "-------------------------------------------------------------"
+		@test all(bottomup(different_heights) |> to_compare .== different_heights_ans)
 	end
 
 	@testset "leaves" begin
@@ -80,7 +87,7 @@ end
 				end
 				valid = length(unique(lengths)) == 1
 				@debug "------------------------------------"
-				@debug "Revisit is set off explicitly. Taproot = $taproot"
+				@debug "All paths being visited. Taproot = $taproot"
 				@debug "Lengths = $(zip(iters, lengths) |> collect)"
 				@debug "------------------------------------"
 				if !valid break end

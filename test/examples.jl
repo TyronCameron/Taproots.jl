@@ -65,4 +65,21 @@ for i in 1:20000
 	global current = current.right
 end
 
-fast_examples = (expr, dict, taproot, my_type, my_complex_type, collider)
+final_collider = Taproot("A final collision", Taproot[])
+first_collider = Taproot("First collider", [
+	Taproot("Go left second", [final_collider]),
+	Taproot("Go right second", [final_collider])
+])
+doubleup = Taproot("Doubleup root", [
+	Taproot("Go left first", [first_collider]),
+	Taproot("Go right first", [first_collider])
+])
+
+different_heights = MoreFlexiTaproot("Top", [
+	MoreFlexiTaproot("A", [
+		MoreFlexiTaproot("Leaf", MoreFlexiTaproot[])
+	]),
+	MoreFlexiTaproot("B", MoreFlexiTaproot[])
+])
+
+fast_examples = (expr, dict, taproot, my_type, my_complex_type, collider, doubleup, different_heights)

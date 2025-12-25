@@ -266,15 +266,37 @@ end
     childrenvisited = Set()
     while !isempty(tracequeue)
         node, trace, level = take!(tracequeue)
-        if !isempty(trace) put!(tracequeue, trace[begin:end-1]) end  
-        if any(child -> connector(node, child) && child ∉ childrenvisited, children(node)) continue end # leave node for later if any unvisited child
+        if !isempty(trace) put!(tracequeue, trace[begin:end-1]) end
+        if any(child -> connector(node, child) && child ∉ childrenvisited, children(node)) continue end # leave node for later if any connected unvisited child
         should_visit_node = visitnode(pathset, node)
         tracknode!(pathset, node, level)
         should_visit_trace = visitnode(tracepathset, trace)
         tracknode!(tracepathset, trace, level)
-        if !should_visit_node || !should_visit_trace continue end 
-        @yield takeshoot(eltype, (level = level, trace = trace, node = node))
+        if !should_visit_node || !should_visit_trace continue end # Must be separate to track 
         push!(childrenvisited, node)
+        @yield takeshoot(eltype, (level = level, trace = trace, node = node))
     end
 end
 
+function walk_bottomup(ch, root; revisit = false, connector = x -> true)
+    leaves = filter(x -> isleaf(x[end]), tracepairs(root; revisit = true, connector = x -> !ischild(x, x; revisit = true) && connector(x)) |> collect)
+    tracequeue = map(x -> x[begin], leaves)
+    visited = Set()
+    visitedtraces = Set()
+    childrenvisited = Set()
+    while !isempty(tracequeue)
+        orig_trace = popfirst!(tracequeue)
+        node = pluck(root, orig_trace)
+        trace = copy(orig_trace)
+        if !isempty(trace)
+            pop!(trace)
+            push!(tracequeue, trace)
+        end
+        if any(child -> child ∉ childrenvisited, children(connector, node)) continue end 
+        node_visited = visited!(node, visited, revisit)
+        trace_visited = visited!(orig_trace, visitedtraces)
+        if node_visited || trace_visited continue end # list separately so we don't shortcircuit
+        push!(childrenvisited, node)
+        put!(ch, node)
+    end
+end

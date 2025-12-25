@@ -27,16 +27,23 @@ visitchild(::AllPaths, node, child) = true
 
 mutable struct NoCycles{T} <: PathSet 
     parents::Set{T}
-    latest::Union{T, Nothing}
+    latest::Vector{T}
     current_level::Int
 end 
 
-initpathset(::Type{NoCycles{T}}) where T = NoCycles(Set{T}(), nothing, -1)
+initpathset(::Type{NoCycles{T}}) where T = NoCycles(Set{T}(), T[], -1)
 initpathset(::Type{NoCycles}) = initpathset(NoCycles{Any})
 function tracknode!(t::NoCycles, node, level)
-    if level <= t.current_level && t.latest ∈ t.parents pop!(t.parents, t.latest) end # remove latest one (important to stay in this order), possible to stay at this level
-    if level >= t.current_level push!(t.parents, node) end # go down one level
-    t.latest = node
+    if level <= t.current_level 
+        for _ in level:t.current_level
+            latest = pop!(t.latest) 
+            pop!(t.parents, latest) 
+        end 
+    end # remove latest one (important to stay in this order), possible to stay at this level
+    if level >= t.current_level 
+        push!(t.parents, node) 
+        push!(t.latest, node)
+    end # go down one level
     t.current_level = level
 end 
 visitnode(t::NoCycles, node) = node ∉ t.parents

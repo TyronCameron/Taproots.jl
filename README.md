@@ -4,6 +4,8 @@
 
 I made this library for personal use but I was getting annoyed with not being able to `Pkg.add("Taproots")`. So now you can use it too, if you want. 
 
+Just be aware that future modification and dev is very likely. 
+
 This library helps you traverse your own nested structs and data in easy peasy ways! 
 This library is inspired by `AbstractTrees.jl`. 
 
