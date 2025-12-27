@@ -22,13 +22,14 @@ iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)
 
 	@testset "bottomup" begin
 		collider_bottomup_ans = ["Collider", "Loner", "Go right",  "Go left", "The top"]
+		@debug bottomup(collider) |> to_compare
 		@test all(bottomup(collider) |> to_compare .== collider_bottomup_ans)
 
 		different_heights_ans = ["B", "Leaf", "A", "Top"]
-		@info "-------------------------------------------------------------"
-		@info "Left hand side = $(bottomup(different_heights) |> to_compare)"
-		@info "Right hand side = $(different_heights_ans)"
-		@info "-------------------------------------------------------------"
+		@debug "-------------------------------------------------------------"
+		@debug "Left hand side = $(bottomup(different_heights) |> to_compare)"
+		@debug "Right hand side = $(different_heights_ans)"
+		@debug "-------------------------------------------------------------"
 		@test all(bottomup(different_heights) |> to_compare .== different_heights_ans)
 	end
 
@@ -43,7 +44,7 @@ iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)
 	end
 
 	@testset "traces" begin
-		collider_traces_ans = [Int[], [2], [2, 1], [1], [1, 2]]
+		collider_traces_ans = [(), (2,), (2, 1), (1,), (1, 2)]
 		@test all(traces(collider) |> to_compare .== collider_traces_ans)
 	end
 
@@ -65,30 +66,30 @@ end
 					push!(lengths, length(collect(iter(taproot))))
 				end
 				valid = length(unique(lengths)) == 1
-				@info "------------------------------------"
-				@info "Taproot = $taproot"
-				@info "Lengths = $(zip(iters, lengths) |> collect)"
-				@info "------------------------------------"
+				@debug "------------------------------------"
+				@debug "Taproot = $taproot"
+				@debug "Lengths = $(zip(iters, lengths) |> collect)"
+				@debug "------------------------------------"
 				if !valid break end
 			end
 			valid
 		end 
 	end
 
-	@testset "Revisit lengths are the same" begin 
-		@test length(collect(branches(my_complex_type; revisit = true))) + length(collect(leaves(my_complex_type; revisit = true))) == length(collect(postorder(my_complex_type; revisit = true)))
+	@testset "AllPaths (revisiting) lengths are the same" begin 
+		@test length(collect(branches(my_complex_type; pathset = AllPaths))) + length(collect(leaves(my_complex_type; pathset = AllPaths))) == length(collect(postorder(my_complex_type; pathset = AllPaths)))
 		@test begin 
 			valid = true
 			for taproot in fast_examples
 				lengths = []
 				for iter in iters
-					push!(lengths, length(collect(iter(taproot; revisit = true))))
+					push!(lengths, length(collect(iter(taproot; pathset = AllPaths))))
 				end
 				valid = length(unique(lengths)) == 1
-				@info "------------------------------------"
-				@info "Revisit is set off explicitly. Taproot = $taproot"
-				@info "Lengths = $(zip(iters, lengths) |> collect)"
-				@info "------------------------------------"
+				@debug "------------------------------------"
+				@debug "All paths being visited. Taproot = $taproot"
+				@debug "Lengths = $(zip(iters, lengths) |> collect)"
+				@debug "------------------------------------"
 				if !valid break end
 			end
 			valid
@@ -118,7 +119,7 @@ end
 
 	@testset "Can iterate infinitely through cycles if desired" begin
 		value = 0
-		for (i, node) in enumerate(preorder(cycle; revisit = true))
+		for (i, node) in enumerate(preorder(cycle; pathset = AllPaths))
 			value = i
 			if i >= 10 break end
 			if i > 10000 break end
