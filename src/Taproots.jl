@@ -2,7 +2,7 @@
 Taproots is a library for traversing nested data structures.
 """
 module Taproots
-using Plots.RecipesBase, GraphRecipes, AbstractTrees, Term.Trees, ResumableFunctions
+using ResumableFunctions
 export Taproot, tapin, tapout,
     eachfield,
     children, data, setchildren!, setdata!,
@@ -12,8 +12,7 @@ export Taproot, tapin, tapout,
     Trace, Level, Node,
     adjacencymatrix,
     tapmap!, tapmap, tapmapif!, tapmapif, leafmap!, leafmap, branchmap!, branchmap, prune!, prune, leafprune!, leafprune, branchprune!, branchprune,
-    findtrace, findtraces, pluck, graft!, getatkeys, setatkeys!, uproot,
-    @sprout, bloom, @bloom
+    findtrace, findtraces, pluck, graft!, getatkeys, setatkeys!, uproot
 
 include(joinpath(@__DIR__, "Taproot.jl"))
 include(joinpath(@__DIR__, "AbstractAPI.jl"))
@@ -28,6 +27,5 @@ include(joinpath(@__DIR__, "PluckGraft.jl"))
 include(joinpath(@__DIR__, "Iteration.jl"))
 include(joinpath(@__DIR__, "Adjacency.jl"))
 include(joinpath(@__DIR__, "Functionals.jl"))
-include(joinpath(@__DIR__, "Visualisation.jl"))
 
 end  # module Taproots
