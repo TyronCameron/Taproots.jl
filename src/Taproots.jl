@@ -2,7 +2,7 @@
 Taproots is a library for traversing nested data structures.
 """
 module Taproots
-using ResumableFunctions
+using ResumableFunctions, PrecompileTools
 export Taproot, tapin, tapout,
     eachfield,
     children, data, setchildren!, setdata!,
@@ -27,5 +27,7 @@ include(joinpath(@__DIR__, "PluckGraft.jl"))
 include(joinpath(@__DIR__, "Iteration.jl"))
 include(joinpath(@__DIR__, "Adjacency.jl"))
 include(joinpath(@__DIR__, "Functionals.jl"))
+
+include(joinpath(@__DIR__, "Precompile.jl"))
 
 end  # module Taproots
