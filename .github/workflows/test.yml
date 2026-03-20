@@ -12,6 +12,7 @@ on:
 permissions:
   actions: write
   contents: read
+  pull-requests: write
 
 jobs:
   test:
@@ -79,7 +80,7 @@ jobs:
             <sub>Updated automatically by CI</sub>`;
 
             const { owner, repo } = context.repo;
-            const issue_number = context.issue.number;
+            const issue_number = context.payload.pull_request.number;
 
             // Get existing comments
             const comments = await github.rest.issues.listComments({
