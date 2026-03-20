@@ -110,3 +110,9 @@ getatkeys(dict, (:a, :b); default = "Nothing found") == "nonsense_data"
 ```
 
 For this and more, check out the [docs](https://tyroncameron.github.io/Taproots.jl/dev/)! 
+
+## Benchmarks 
+
+<!-- BENCHMARK_START -->
+
+<!-- BENCHMARK_END -->

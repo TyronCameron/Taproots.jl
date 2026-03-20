@@ -1,0 +1,1 @@
+topdown_simple_small_tree(tree) = topdown(tree; pathset = AllPaths)

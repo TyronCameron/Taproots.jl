@@ -5,4 +5,4 @@ PrettyTables = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
 Taproots = "6cca9763-2e92-47b9-bf40-ccfe60418944"
 
 [sources]
-Taproots = {path = ".."}
+Taproots = {path = "../.."}

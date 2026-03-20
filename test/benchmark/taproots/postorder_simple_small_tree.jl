@@ -1,0 +1,1 @@
+postorder_simple_small_tree(tree) = postorder(tree; pathset = AllPaths)

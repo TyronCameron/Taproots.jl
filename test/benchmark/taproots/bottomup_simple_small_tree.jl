@@ -1,0 +1,1 @@
+bottomup_simple_small_tree(tree) = bottomup(tree; pathset = AllPaths)

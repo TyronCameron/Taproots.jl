@@ -35,5 +35,47 @@ jobs:
         if: matrix.julia-version == '1' && matrix.os == 'ubuntu-latest' && matrix.julia-arch == 'x64'
       - uses: codecov/codecov-action@v5
         if: matrix.julia-version == '1' && matrix.os == 'ubuntu-latest' && matrix.julia-arch == 'x64'
+        continue-on-error: true
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  benchmark:
+    if: github.event_name == 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: julia-actions/setup-julia@v2
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+          arch: x64
+      - uses: julia-actions/cache@v2
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: Run benchmarks
+        working-directory: test/benchmark
+        run: |
+          julia --project=. -e 'using Pkg; Pkg.resolve(); Pkg.instantiate()'
+          julia --project=. benchmark.jl
+      - name: Update README
+        run: |
+          RESULTS=$(cat benchmark/results.md)
+          
+          if grep -q "<!-- BENCHMARK_START -->" README.md; then
+            awk '
+              /<!-- BENCHMARK_START -->/ { print; print ENVIRON["RESULTS"]; found=1 }
+              found && /<!-- BENCHMARK_END -->/ { found=0 }
+              !found { print }
+            ' RESULTS="$RESULTS" README.md > README.tmp && mv README.tmp README.md
+          else
+            printf '\n<!-- BENCHMARK_START -->\n%s\n<!-- BENCHMARK_END -->\n' "$RESULTS" >> README.md
+          fi
+      - name: Commit README
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git diff --staged --quiet || git commit -m "chore: update benchmark results [skip ci]"
+          git push
