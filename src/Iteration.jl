@@ -8,16 +8,16 @@
 ##────────────────────────────────────────────────────────────────────────────#
 
 """
-    preorder([children::Function], taproots...; kwargs...)
+    preorder([children], taproots...; kwargs...)
 
 Args:
 
-- `children::Function` is an optional function taking in a taproot and returning an iterator of children taproots. If supplied, this iterator will not revert to using the `Taproots.children` function. 
+- `children` is an optional function taking in a taproot and returning an iterator of children taproots. If supplied, this iterator will not revert to using the `Taproots.children` function. 
 - `taproots` are the root nodes we'd like to iterate through 
 
 Supports `kwargs` include:
 
-- `connector::Function`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
+- `connector`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
 - `pathset::Type{<:PathSet}`, this is a selection of how many times to visit each node / edge. Options include: `AllPaths`, `NoCycles`, `OncePerNode`, `OncePerEdge`
 - `eltype::Union{Type{<:Shoot}, Tuple}`, this determines what output you want. Options include: `Node`, `Level`, `Trace`, or combinations such as `(Node, Level, Trace)`
 
@@ -38,16 +38,16 @@ collect(preorder(x)) <: Vector
 preorder(args...; kwargs...) = standardised_iterate_taproot(Preorder, args...; kwargs...)
 
 """
-    postorder([children::Function], taproots...; kwargs...)
+    postorder([children], taproots...; kwargs...)
 
 Args:
 
-- `children::Function` is an optional function taking in a taproot and returning an iterator of children taproots. If supplied, this iterator will not revert to using the `Taproots.children` function. 
+- `children` is an optional function taking in a taproot and returning an iterator of children taproots. If supplied, this iterator will not revert to using the `Taproots.children` function. 
 - `taproots` are the root nodes we'd like to iterate through 
 
 Supports `kwargs` include:
 
-- `connector::Function`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
+- `connector`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
 - `pathset::Type{<:PathSet}`, this is a selection of how many times to visit each node / edge. Options include: `AllPaths`, `NoCycles`, `OncePerNode`, `OncePerEdge`
 - `eltype::Union{Type{<:Shoot}, Tuple}`, this determines what output you want. Options include: `Node`, `Level`, `Trace`, or combinations such as `(Node, Level, Trace)`
 
@@ -66,16 +66,16 @@ collect(postorder(x)) <: Vector
 postorder(args...; kwargs...) = standardised_iterate_taproot(Postorder, args...; kwargs...)
 
 """
-    topdown([children::Function], taproots...; kwargs...)
+    topdown([children], taproots...; kwargs...)
 
 Args:
 
-- `children::Function` is an optional function taking in a taproot and returning an iterator of children taproots. If supplied, this iterator will not revert to using the `Taproots.children` function. 
+- `children` is an optional function taking in a taproot and returning an iterator of children taproots. If supplied, this iterator will not revert to using the `Taproots.children` function. 
 - `taproots` are the root nodes we'd like to iterate through 
 
 Supports `kwargs` include:
 
-- `connector::Function`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
+- `connector`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
 - `pathset::Type{<:PathSet}`, this is a selection of how many times to visit each node / edge. Options include: `AllPaths`, `NoCycles`, `OncePerNode`, `OncePerEdge`
 - `eltype::Union{Type{<:Shoot}, Tuple}`, this determines what output you want. Options include: `Node`, `Level`, `Trace`, or combinations such as `(Node, Level, Trace)`
 
@@ -95,16 +95,16 @@ collect(topdown(x)) <: Vector
 topdown(args...; kwargs...) = standardised_iterate_taproot(Topdown, args...; kwargs...)
 
 """
-    bottomup([children::Function], taproots...; kwargs...)
+    bottomup([children], taproots...; kwargs...)
 
 Args:
 
-- `children::Function` is an optional function taking in a taproot and returning an iterator of children taproots. If supplied, this iterator will not revert to using the `Taproots.children` function. 
+- `children` is an optional function taking in a taproot and returning an iterator of children taproots. If supplied, this iterator will not revert to using the `Taproots.children` function. 
 - `taproots` are the root nodes we'd like to iterate through 
 
 Supports `kwargs` include:
 
-- `connector::Function`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
+- `connector`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
 - `pathset::Type{<:PathSet}`, this is a selection of how many times to visit each node / edge. Options include: `AllPaths`, `NoCycles`, `OncePerNode`, `OncePerEdge`
 - `eltype::Union{Type{<:Shoot}, Tuple}`, this determines what output you want. Options include: `Node`, `Level`, `Trace`, or combinations such as `(Node, Level, Trace)`
 
@@ -158,21 +158,23 @@ tracepairs(args...; kwargs...) = preorder(args...; kwargs..., eltype = (Trace, N
 ## Standardise args and multi taproots
 ##────────────────────────────────────────────────────────────────────────────#
 
-function standardised_iterate_taproot(walk_order::Type{<:WalkOrder}, taproots...; kwargs...) # no children function
-    standardised_iterate_taproot(walk_order, children, taproots...; kwargs...)
+function standardised_iterate_taproot(walk_order::Type{<:WalkOrder}, taproot, taproots...; kwargs...) # no children function
+    standardised_iterate_taproot(walk_order, children, taproot, taproots...; kwargs...)
 end 
 
 function standardised_iterate_taproot( # Allow passing the `children` function
     walk_order::Type{<:WalkOrder},
-    children::Function, 
+    children,
+    taproot,
     taproots...; 
-    connector::Function = (node, child) -> true, 
+    connector = (node, child) -> true, 
     pathset::Type{<:PathSet} = OncePerNode, 
     eltype::Union{Type{<:Shoot}, Tuple} = Node
 )
     iterate_multi_taproot(
         walk_order,
         children,
+        taproot,
         taproots; 
         connector = connector, 
         pathset = pathset, 
@@ -183,23 +185,24 @@ end
 # For a set of Taproots, I think just create a single parent which has all the listed taproots as children
 # That way, all nodes are iterated over in the correct order, even bottomup and topdown
 # The MultiTaproot just can't be part of the final result
-struct MultiTaproot
-    children 
+struct MultiTaproot{T}
+    children::T
 end 
 children(x::MultiTaproot) = x.children
 
 function iterate_multi_taproot( 
     walk_order,
     children,
+    taproot,
     taproots; 
     connector = (node, child) -> true, 
     pathset = AllPaths, 
     eltype = Node
 )
-    if length(taproots) == 1
-        return walk(walk_order, initpathset(pathset), eltype, children, connector, taproots[begin])
+    if length(taproots) == 0
+        return walk(walk_order, initpathset(pathset), eltype, children, connector, taproot)
     end 
-    return Iterators.drop(walk(walk_order, initpathset(pathset), eltype, children, connector, MultiTaproot(collect(taproots))), 1)
+    return Iterators.drop(walk(walk_order, initpathset(pathset), eltype, children, connector, MultiTaproot((taproot, taproots...))), 1)
 end
 
 ## Walk in different orders
@@ -207,7 +210,7 @@ end
 
 ### Preorder
 
-@resumable function walk(::Type{Preorder}, pathset, eltype, children, connector, root)
+@resumable function walk(::Type{Preorder}, pathset::PathSet, eltype, children, connector, root)
     stack = StackFrontier{NamedTuple}([initshoot(eltype, root)])
     while !isempty(stack)
         shoot, node, level = take!(stack)
