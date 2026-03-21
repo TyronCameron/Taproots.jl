@@ -150,7 +150,6 @@ function profile_test(n, f, example)
     end 
 end
 
-
 function single_flame_graph(impl, sit, n = 100_000)
     example = get_func(:init, sit)()
     func = get_func(impl, sit)
@@ -158,6 +157,9 @@ function single_flame_graph(impl, sit, n = 100_000)
     @profview profile_test(n, func, example)
 end
 
-single_flame_graph(:taproots, :preorder_simple_small_tree)
+# single_flame_graph(:taproots, :preorder_simple_small_tree)
 
-@report_opt 
+# impl, sit = :taproots, :preorder_simple_small_tree
+# example = get_func(:init, sit)()
+# func = get_func(impl, sit)
+# @report_opt func(example)
