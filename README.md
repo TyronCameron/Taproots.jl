@@ -1,21 +1,56 @@
+
+
+<p align="center">
+  <img src="docs/src/assets/taproots.png" width="150" />
+</p>
+
+<h1 align="center">Taproots.jl</h1>
+
 [![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://tyroncameron.github.io/Taproots.jl/dev/)
 [![Test workflow status](https://github.com/TyronCameron/Taproots.jl/actions/workflows/test.yml/badge.svg)](https://github.com/TyronCameron/Taproots.jl/actions/workflows/test.yml)
 [![Coverage](https://codecov.io/gh/TyronCameron/Taproots.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/TyronCameron/Taproots.jl)
 [![Docs workflow Status](https://github.com/TyronCameron/Taproots.jl/actions/workflows/doc.yml/badge.svg)](https://github.com/TyronCameron/Taproots.jl/actions/workflows/doc.yml)
 [![Aqua QA](https://juliatesting.github.io/Aqua.jl/dev/assets/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
-# Taproots.jl
+Welcome to `Taproots.jl`, the library made for recursing through nested data. 
 
-I made this library for personal use but I was getting annoyed with not being able to `Pkg.add("Taproots")`. So now you can use it too, if you want. 
+I made this library for my own use, and so just be aware that future modification and dev is very likely. 
 
-Just be aware that future modification and dev is very likely. 
-
-This library helps you traverse your own nested structs and data in easy peasy ways! 
-This library is inspired by `AbstractTrees.jl`. 
+Inspired by `AbstractTrees.jl`, and adding on the ability to track previous nodes, this library gives you iteration capabilities to visit your data structures completely. 
 
 Check out the [docs](https://tyroncameron.github.io/Taproots.jl/dev/) for more info. 
 
 Here's a quick tldr with a few examples.
+
+## Example: I have my own data, how do I traverse it?
+
+Let's say you defined your own type. 
+
+```julia
+struct TerniaryTree
+	node_name::String
+	left_option::Union{TerniaryTree, Nothing}
+	middle_option::Union{TerniaryTree, Nothing}
+	right_option::Union{TerniaryTree, Nothing}
+end 
+Base.show(io::IO, node::TerniaryTree) = print(io, node.node_name)
+```
+
+Get access to all the traversal functionality in this package very easily!
+
+```julia
+Taproots.children(node::TerniaryTree) = (node.left_option, node.middle_option, node.right_option)
+```
+
+Now we can traverse the `TerniaryTree`
+
+```julia
+for node in postorder(deeply_nested_terniary_tree) 
+	println(node)
+end 
+```
+
+Get access to modification functionality by optionally implementing `Taproots.data`, `Taproots.setchildren!`, `Taproots.setdata!`. It's worth it! 
 
 ## Example: change all the data in a dict
 
@@ -59,36 +94,6 @@ eval(expr)
 ```
 
 Did you see what that does? It replaced every `map` function call to instead call `filter`. 
-
-## Example: I have my own data, how do I traverse it?
-
-Let's say you defined your own type. 
-
-```julia
-struct TerniaryTree
-	node_name::String
-	left_option::Union{TerniaryTree, Nothing}
-	middle_option::Union{TerniaryTree, Nothing}
-	right_option::Union{TerniaryTree, Nothing}
-end 
-Base.show(io::IO, node::TerniaryTree) = print(io, node.node_name)
-```
-
-Get access to all the traversal functionality in this package very easily!
-
-```julia
-Taproots.children(node::TerniaryTree) = (node.left_option, node.middle_option, node.right_option)
-```
-
-Now we can traverse the `TerniaryTree`
-
-```julia
-for node in postorder(deeply_nested_terniary_tree) 
-	println(node)
-end 
-```
-
-Get access to modification functionality by optionally implementing `Taproots.data`, `Taproots.setchildren!`, `Taproots.setdata!`. It's worth it! 
 
 ## Bonus: Get free visualisation set up for your types
 
