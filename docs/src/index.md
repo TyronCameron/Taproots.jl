@@ -1,4 +1,9 @@
-# Taproots.jl
+```@raw html
+<p align="center">
+  <img src="assets/taproots.png" width="150">
+</p>
+<h1 align="center">Taproots.jl</h1>
+```
 
 This library helps you traverse nested structs and data (including your own custom ones) in easy peasy ways! 
 This library is inspired by `AbstractTrees.jl` and provides abstract interface. 
