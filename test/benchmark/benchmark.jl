@@ -3,6 +3,8 @@ using BenchmarkTools
 using Taproots
 using DataFrames
 using PrettyTables
+using Profile
+using JET
 
 implementations::Tuple = (:naive, :taproots)
 situations::Tuple = (
@@ -45,8 +47,10 @@ function get_func(implementation, situation)
         @eval InitFunctions.$situation
     elseif implementation == :naive 
         @eval NaiveFunctions.$situation
-    else 
+    elseif implementation == :taproots 
         @eval TaprootFunctions.$situation
+    else 
+        @assert false "No known functions for $implementation"
     end 
 end
 
@@ -136,6 +140,24 @@ open(joinpath(@__DIR__, "results.md"), "w") do f
     write(f, mark)
 end
 
+function profile_test(n, f, example)
+    try 
+        for i in 1:n
+            f(example)    
+        end
+    catch e 
+        #nothing
+    end 
+end
 
 
+function single_flame_graph(impl, sit, n = 100_000)
+    example = get_func(:init, sit)()
+    func = get_func(impl, sit)
+    profile_test(10, func, example)
+    @profview profile_test(n, func, example)
+end
 
+single_flame_graph(:taproots, :preorder_simple_small_tree)
+
+@report_opt 

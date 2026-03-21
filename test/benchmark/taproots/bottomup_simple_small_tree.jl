@@ -1,1 +1,1 @@
-bottomup_simple_small_tree(tree) = bottomup(tree; pathset = AllPaths)
+bottomup_simple_small_tree(tree) = bottomup(tree; pathset = AllPaths) |> collect 

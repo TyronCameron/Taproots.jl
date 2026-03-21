@@ -1,7 +1,7 @@
 @setup_workload begin
-    leaf = Taproot(2)
-    branch = Taproot(3, [Taproot(4), Taproot(5)])
-    root = Taproot(1, [branch, leaf])
+    leaf = Taproot(2, Taproot[])
+    branch = Taproot(3, Taproot[Taproot(4), Taproot(5)])
+    root = Taproot(1, Taproot[branch, leaf])
 
     @compile_workload begin
         isleaf(leaf)

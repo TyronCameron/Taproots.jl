@@ -1,1 +1,1 @@
-preorder_simple_small_tree(tree) = preorder(tree; pathset = AllPaths)
+preorder_simple_small_tree(tree) = preorder(tree; pathset = AllPaths) |> collect

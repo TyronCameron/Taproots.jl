@@ -24,6 +24,8 @@ docs/site/
 **/Manifest.toml
 Manifest.toml
 
+*.svg
+
 *.sublime-workspace
 *.sublime-project
 .secrets
