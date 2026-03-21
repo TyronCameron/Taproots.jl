@@ -1,0 +1,1 @@
+expensive_tree(taproot) = preorder(taproot) |> collect

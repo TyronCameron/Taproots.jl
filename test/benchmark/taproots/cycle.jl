@@ -1,0 +1,1 @@
+cycle(taproot) = preorder(taproot) |> collect
