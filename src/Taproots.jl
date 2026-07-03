@@ -2,7 +2,7 @@
 Taproots is a library for traversing nested data structures.
 """
 module Taproots
-using ResumableFunctions, PrecompileTools, SumTypes
+using ResumableFunctions, PrecompileTools
 export Taproot, tapin, tapout,
     eachfield,
     children, childtype, childtypes, data, setchildren!, setdata!,

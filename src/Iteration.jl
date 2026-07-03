@@ -199,6 +199,7 @@ end
 children(x::MultiTaproot) = x.children
 
 shouldyield(shoots, node) = !(node isa MultiTaproot) # single-root walks: constant-folds to true
+shouldyield(::WholeSprout, node) = true # the bottomup mapping pass needs every sprout, incl. the synthetic multi-root parent
 
 function iterate_multi_taproot(
     walk_order,
@@ -219,21 +220,17 @@ end
 
 ## Typed walk construction
 ##────────────────────────────────────────────────────────────────────────────#
-    # Function barrier: compute the node type, the concrete sprout type, the
-    # frontier and the typed pathset *before* entering the @resumable walk, so
-    # that the state machine's fields are all concretely inferred. The FSM is
-    # wrapped in a TypedWalk purely to give the iterator a concrete eltype.
 
 struct TypedWalk{T, I}
-    fsm::I
+    resumable::I
 end
-TypedWalk{T}(fsm) where T = TypedWalk{T, typeof(fsm)}(fsm)
+TypedWalk{T}(resumable) where T = TypedWalk{T, typeof(resumable)}(resumable)
 
 Base.eltype(::Type{TypedWalk{T, I}}) where {T, I} = T
 Base.IteratorSize(::Type{<:TypedWalk}) = Base.SizeUnknown()
 
 function Base.iterate(w::TypedWalk{T}, state = nothing) where T
-    result = iterate(w.fsm, state)
+    result = iterate(w.resumable, state)
     result === nothing && return nothing
     return (first(result)::T, nothing)
 end
@@ -242,43 +239,17 @@ function buildwalk(walk_order, shoots, children, connector, pathset, root; sizeg
     N = childtypes(root)
     S = sprouttype(shoots, N)
     frontier = initfrontier(walk_order, S, shoots, children, connector, root, sizeguess)
-    fsm = walk(walk_order, frontier, initpathset(pathset, N; sizeguess), shoots, children, connector)
-    return TypedWalk{yieldtype(shoots, S)}(fsm)
+    resumable = walk(walk_order, frontier, initpathset(pathset, N; sizeguess), shoots, children, connector)
+    return TypedWalk{yieldtype(shoots, S)}(resumable)
 end
 
-const FRONTIER_SIZEGUESS = 8 # frontiers hold a "row" of the taproot at a time, so stay small
-
-firstsprout(::Type{S}, shoots, root) where S = sizehint!(S[initsprout(shoots, nodetypeof(S), root)], FRONTIER_SIZEGUESS)
-
-initfrontier(::Type{Preorder}, ::Type{S}, shoots, children, connector, root, sizeguess) where S = StackFrontier{S}(firstsprout(S, shoots, root))
-initfrontier(::Type{Postorder}, ::Type{S}, shoots, children, connector, root, sizeguess) where S = PostorderStackFrontier{S}(firstsprout(S, shoots, root), sizehint!([false], FRONTIER_SIZEGUESS))
-initfrontier(::Type{Topdown}, ::Type{S}, shoots, children, connector, root, sizeguess) where S = QueueFrontier{S}(firstsprout(S, shoots, root), 1)
-
-function initfrontier(::Type{Bottomup}, ::Type{S}, shoots, children, connector, root, sizeguess) where S # eagerly map out the taproot in preorder
-    states = allsprouts(S, shoots, children, connector, root, sizeguess)
-    return BottomupFrontier(states, [k for (k, state) in enumerate(states) if isleaf(nodeof(state))], sizeguess)
-end
-
-# The eager twin of `walk(Preorder, ...)`: identical traversal, but pushes every
-# sprout (incl. any synthetic multi-root parent) into a vector instead of
-# yielding. Bottomup is eager anyway, and pushing eagerly avoids the state
-# machine boxing each yielded sprout.
-function allsprouts(::Type{S}, shoots, children, connector, root, sizeguess) where S
-    stack = initfrontier(Preorder, S, shoots, children, connector, root, sizeguess)
-    pathset = initpathset(NoCycles, nodetypeof(S); sizeguess)
-    states = sizehint!(S[], sizeguess)
-    while !isempty(stack)
-        sprout = take!(stack)
-        node = nodeof(sprout)
-        if !visitnode(pathset, node) continue end
-        push!(states, sprout)
-        for (i, child) in enumerate(children(node))
-            if !connector(node, child) || !visitchild(pathset, node, child) continue end
-            put!(stack, putsprout(sprout, child, i))
-        end
-        tracknode!(pathset, node, levelof(sprout))
-    end
-    return states
+firstsprout(::Type{S}, shoots, root, sizeguess = 8) where S = sizehint!(S[initsprout(S, root)], sizeguess)
+initfrontier(::Type{Preorder}, ::Type{S}, shoots, children, connector, root, sizeguess = 8) where S = StackFrontier{S}(firstsprout(S, shoots, root))
+initfrontier(::Type{Postorder}, ::Type{S}, shoots, children, connector, root, sizeguess = 8) where S = PostorderStackFrontier{S}(firstsprout(S, shoots, root), sizehint!([false], sizeguess))
+initfrontier(::Type{Topdown}, ::Type{S}, shoots, children, connector, root, sizeguess = 8) where S = QueueFrontier{S}(firstsprout(S, shoots, root), 1)
+function initfrontier(::Type{Bottomup}, ::Type{S}, shoots, children, connector, root, sizeguess = 8) where S
+    premap = buildwalk(Preorder, WholeSprout(shoots), children, connector, NoCycles, root; sizeguess)
+    return BottomupFrontier(collect(premap), children, connector)
 end
 
 ## Walk in different orders
@@ -346,23 +317,17 @@ end
 
 @resumable function walk(::Type{Bottomup}, frontier, pathset, shoots, children, connector)
     while !isempty(frontier)
-        k, sprout, parent = take!(frontier)
-        if frontier.completed[k] continue end # this path already completed via an earlier take
-        node = nodeof(sprout)
-        ready = true # only take this node once every connected child has been visited
-        for child in children(node)
-            if connector(node, child) && child ∉ frontier.visited
-                ready = false
-                break
-            end
+        k = take!(frontier) # only taken once all of this sprout's children were taken
+        sprout = frontier.states[k]
+        parent = frontier.parentidx[k]
+        if parent != 0 # this sprout is done, so its parent is one child closer to eligible
+            frontier.pending[parent] -= 1
+            if frontier.pending[parent] == 0 put!(frontier, parent) end
         end
-        if !ready continue end # leave node for later; completing children re-enqueue this path
-        frontier.completed[k] = true
-        if parent != 0 put!(frontier, parent) end # node is done, so its parent becomes eligible
+        node = nodeof(sprout)
         should_visit_node = visitnode(pathset, node)
         tracknode!(pathset, node, levelof(sprout))
         if !should_visit_node continue end
-        push!(frontier.visited, node)
         if shouldyield(shoots, node)
             @yield takeshoot(shoots, sprout)
         end

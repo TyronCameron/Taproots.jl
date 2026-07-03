@@ -31,10 +31,10 @@ mutable struct NoCycles{T} <: PathSet
     latest::Vector{T}
 end
 
-initpathset(::Type{NoCycles{T}}; sizeguess::Int = 256) where T = NoCycles(sizehint!(Set{T}(), sizeguess), sizehint!(T[], sizeguess))
-initpathset(::Type{NoCycles}; sizeguess::Int = 256) = initpathset(NoCycles{Any}; sizeguess)
-initpathset(::Type{NoCycles}, ::Type{N}; sizeguess::Int = 256) where N = initpathset(NoCycles{N}; sizeguess)
-initpathset(::Type{NoCycles{T}}, ::Type; sizeguess::Int = 256) where T = initpathset(NoCycles{T}; sizeguess)
+initpathset(::Type{NoCycles{T}}; sizeguess::Int = 8) where T = NoCycles(sizehint!(Set{T}(), sizeguess), sizehint!(T[], sizeguess))
+initpathset(::Type{NoCycles}; sizeguess::Int = 8) = initpathset(NoCycles{Any}; sizeguess)
+initpathset(::Type{NoCycles}, ::Type{N}; sizeguess::Int = 8) where N = initpathset(NoCycles{N}; sizeguess)
+initpathset(::Type{NoCycles{T}}, ::Type; sizeguess::Int = 8) where T = initpathset(NoCycles{T}; sizeguess)
 function tracknode!(t::NoCycles, node, level)
     while length(t.latest) > level # truncate the parent stack down to this node's ancestors
         delete!(t.parents, pop!(t.latest))
