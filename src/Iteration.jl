@@ -20,6 +20,7 @@ Supports `kwargs` include:
 - `connector`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
 - `pathset::Type{<:PathSet}`, this is a selection of how many times to visit each node / edge. Options include: `AllPaths`, `NoCycles`, `OncePerNode`, `OncePerEdge`
 - `eltype::Union{Type{<:Shoot}, Tuple}`, this determines what output you want. Options include: `Node`, `Level`, `Trace`, or combinations such as `(Node, Level, Trace)`
+- `sizeguess::Int = 256`, a guess of how many nodes the taproot holds, used to preallocate internal tracking structures
 
 This creates a lazy iterator as a preorder depth-first search of your custom Taproot.
 In this iterator, parents are always iterated on before their children.
@@ -50,6 +51,7 @@ Supports `kwargs` include:
 - `connector`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
 - `pathset::Type{<:PathSet}`, this is a selection of how many times to visit each node / edge. Options include: `AllPaths`, `NoCycles`, `OncePerNode`, `OncePerEdge`
 - `eltype::Union{Type{<:Shoot}, Tuple}`, this determines what output you want. Options include: `Node`, `Level`, `Trace`, or combinations such as `(Node, Level, Trace)`
+- `sizeguess::Int = 256`, a guess of how many nodes the taproot holds, used to preallocate internal tracking structures
 
 This creates a lazy iterator as a postorder depth-first search of your custom Taproot.
 In this iterator, children are always iterated on before their parents. Parents will immediately follow their children (so some (possibly irrelevant) children may not be iterated before the parent above them).
@@ -78,6 +80,7 @@ Supports `kwargs` include:
 - `connector`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
 - `pathset::Type{<:PathSet}`, this is a selection of how many times to visit each node / edge. Options include: `AllPaths`, `NoCycles`, `OncePerNode`, `OncePerEdge`
 - `eltype::Union{Type{<:Shoot}, Tuple}`, this determines what output you want. Options include: `Node`, `Level`, `Trace`, or combinations such as `(Node, Level, Trace)`
+- `sizeguess::Int = 256`, a guess of how many nodes the taproot holds, used to preallocate internal tracking structures
 
 
 This creates a lazy iterator as a topdown (level-order) breadth-first search of your custom Taproot.
@@ -107,6 +110,7 @@ Supports `kwargs` include:
 - `connector`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
 - `pathset::Type{<:PathSet}`, this is a selection of how many times to visit each node / edge. Options include: `AllPaths`, `NoCycles`, `OncePerNode`, `OncePerEdge`
 - `eltype::Union{Type{<:Shoot}, Tuple}`, this determines what output you want. Options include: `Node`, `Level`, `Trace`, or combinations such as `(Node, Level, Trace)`
+- `sizeguess::Int = 256`, a guess of how many nodes the taproot holds, used to preallocate internal tracking structures
 
 This creates an eager iterator as a bottomup (reverse level-order) breadth-first search of your custom Taproot. This is topological order.
 The bottom children are iterated first, and then the next layer up and so on. Leaves are not technically guaranteed to be iterated on first, before parents.
@@ -171,7 +175,8 @@ function standardised_iterate_taproot( # Allow passing the `children` function
     taproots...;
     connector = alwaysconnect,
     pathset::Type{<:PathSet} = OncePerNode,
-    eltype::Union{Type{<:Shoot}, Tuple} = Node
+    eltype::Union{Type{<:Shoot}, Tuple} = Node,
+    sizeguess::Int = 256
 )
     iterate_multi_taproot(
         walk_order,
@@ -180,7 +185,8 @@ function standardised_iterate_taproot( # Allow passing the `children` function
         taproots;
         connector = connector,
         pathset = pathset,
-        eltype = eltype
+        eltype = eltype,
+        sizeguess = sizeguess
     )
 end
 
@@ -193,7 +199,6 @@ end
 children(x::MultiTaproot) = x.children
 
 shouldyield(shoots, node) = !(node isa MultiTaproot) # single-root walks: constant-folds to true
-shouldyield(::RawShoot, node) = true # bottomup's preorder pass needs every state, incl. the synthetic root
 
 function iterate_multi_taproot(
     walk_order,
@@ -202,55 +207,78 @@ function iterate_multi_taproot(
     taproots;
     connector = alwaysconnect,
     pathset = AllPaths,
-    eltype = Node
+    eltype = Node,
+    sizeguess = 256
 )
-    shoots = canonicalshoot(eltype)
+    shoots = standardisedshoot(eltype)
     if length(taproots) == 0
-        return buildwalk(walk_order, shoots, children, connector, pathset, taproot)
+        return buildwalk(walk_order, shoots, children, connector, pathset, taproot; sizeguess)
     end
-    return buildwalk(walk_order, shoots, children, connector, pathset, MultiTaproot((taproot, taproots...)))
+    return buildwalk(walk_order, shoots, children, connector, pathset, MultiTaproot((taproot, taproots...)); sizeguess)
 end
 
 ## Typed walk construction
 ##────────────────────────────────────────────────────────────────────────────#
-    # Function barrier: compute the node type, the concrete shoot type, the
+    # Function barrier: compute the node type, the concrete sprout type, the
     # frontier and the typed pathset *before* entering the @resumable walk, so
     # that the state machine's fields are all concretely inferred. The FSM is
-    # wrapped in a TapWalk purely to give the iterator a concrete eltype.
+    # wrapped in a TypedWalk purely to give the iterator a concrete eltype.
 
-struct TapWalk{T, I}
+struct TypedWalk{T, I}
     fsm::I
 end
-TapWalk{T}(fsm) where T = TapWalk{T, typeof(fsm)}(fsm)
+TypedWalk{T}(fsm) where T = TypedWalk{T, typeof(fsm)}(fsm)
 
-Base.eltype(::Type{TapWalk{T, I}}) where {T, I} = T
-Base.IteratorSize(::Type{<:TapWalk}) = Base.SizeUnknown()
+Base.eltype(::Type{TypedWalk{T, I}}) where {T, I} = T
+Base.IteratorSize(::Type{<:TypedWalk}) = Base.SizeUnknown()
 
-function Base.iterate(w::TapWalk{T}, state = nothing) where T
+function Base.iterate(w::TypedWalk{T}, state = nothing) where T
     result = iterate(w.fsm, state)
     result === nothing && return nothing
     return (first(result)::T, nothing)
 end
 
-function buildwalk(walk_order, shoots, children, connector, pathset, root)
+function buildwalk(walk_order, shoots, children, connector, pathset, root; sizeguess = 256)
     N = childtypes(root)
-    S = shoottype(shoots, N)
-    fsm = makewalk(walk_order, S, initpathset(pathset, N), shoots, children, connector, root)
-    return TapWalk{yieldtype(shoots, S)}(fsm)
+    S = sprouttype(shoots, N)
+    frontier = initfrontier(walk_order, S, shoots, children, connector, root, sizeguess)
+    fsm = walk(walk_order, frontier, initpathset(pathset, N; sizeguess), shoots, children, connector)
+    return TypedWalk{yieldtype(shoots, S)}(fsm)
 end
 
-function makewalk(walk_order::Type{<:WalkOrder}, ::Type{S}, pathset, shoots, children, connector, root) where S
-    walk(walk_order, initfrontier(walk_order, S, shoots, children, connector, root), pathset, shoots, children, connector)
+const FRONTIER_SIZEGUESS = 8 # frontiers hold a "row" of the taproot at a time, so stay small
+
+firstsprout(::Type{S}, shoots, root) where S = sizehint!(S[initsprout(shoots, nodetypeof(S), root)], FRONTIER_SIZEGUESS)
+
+initfrontier(::Type{Preorder}, ::Type{S}, shoots, children, connector, root, sizeguess) where S = StackFrontier{S}(firstsprout(S, shoots, root))
+initfrontier(::Type{Postorder}, ::Type{S}, shoots, children, connector, root, sizeguess) where S = PostorderStackFrontier{S}(firstsprout(S, shoots, root), sizehint!([false], FRONTIER_SIZEGUESS))
+initfrontier(::Type{Topdown}, ::Type{S}, shoots, children, connector, root, sizeguess) where S = QueueFrontier{S}(firstsprout(S, shoots, root), 1)
+
+function initfrontier(::Type{Bottomup}, ::Type{S}, shoots, children, connector, root, sizeguess) where S # eagerly map out the taproot in preorder
+    states = allsprouts(S, shoots, children, connector, root, sizeguess)
+    return BottomupFrontier(states, [k for (k, state) in enumerate(states) if isleaf(nodeof(state))], sizeguess)
 end
 
-initfrontier(::Type{Preorder}, ::Type{S}, shoots, children, connector, root) where S = StackFrontier{S}(S[initshoot(shoots, root)])
-initfrontier(::Type{Postorder}, ::Type{S}, shoots, children, connector, root) where S = PostorderStackFrontier{S}(S[initshoot(shoots, root)], [false])
-initfrontier(::Type{Topdown}, ::Type{S}, shoots, children, connector, root) where S = QueueFrontier{S}(S[initshoot(shoots, root)], 1)
-
-function initfrontier(::Type{Bottomup}, ::Type{S}, shoots, children, connector, root) where S # eagerly map out the taproot in preorder
-    fsm = makewalk(Preorder, S, initpathset(NoCycles, nodetypeof(S)), RawShoot(shoots), children, connector, root)
-    states = collect(TapWalk{S}(fsm))
-    return BottomupFrontier(states, [k for (k, state) in enumerate(states) if isleaf(state.node)])
+# The eager twin of `walk(Preorder, ...)`: identical traversal, but pushes every
+# sprout (incl. any synthetic multi-root parent) into a vector instead of
+# yielding. Bottomup is eager anyway, and pushing eagerly avoids the state
+# machine boxing each yielded sprout.
+function allsprouts(::Type{S}, shoots, children, connector, root, sizeguess) where S
+    stack = initfrontier(Preorder, S, shoots, children, connector, root, sizeguess)
+    pathset = initpathset(NoCycles, nodetypeof(S); sizeguess)
+    states = sizehint!(S[], sizeguess)
+    while !isempty(stack)
+        sprout = take!(stack)
+        node = nodeof(sprout)
+        if !visitnode(pathset, node) continue end
+        push!(states, sprout)
+        for (i, child) in enumerate(children(node))
+            if !connector(node, child) || !visitchild(pathset, node, child) continue end
+            put!(stack, putsprout(sprout, child, i))
+        end
+        tracknode!(pathset, node, levelof(sprout))
+    end
+    return states
 end
 
 ## Walk in different orders
@@ -260,17 +288,17 @@ end
 
 @resumable function walk(::Type{Preorder}, stack, pathset, shoots, children, connector)
     while !isempty(stack)
-        shoot = take!(stack)
-        node = shoot.node
+        sprout = take!(stack)
+        node = nodeof(sprout)
         if !visitnode(pathset, node) continue end
         if shouldyield(shoots, node)
-            @yield takeshoot(shoots, shoot)
+            @yield takeshoot(shoots, sprout)
         end
         for (i, child) in enumerate(children(node))
             if !connector(node, child) || !visitchild(pathset, node, child) continue end
-            put!(stack, putshoot(shoot, child, i))
+            put!(stack, putsprout(sprout, child, i))
         end
-        tracknode!(pathset, node, shoot.level)
+        tracknode!(pathset, node, levelof(sprout))
     end
 end
 
@@ -278,20 +306,20 @@ end
 
 @resumable function walk(::Type{Postorder}, stack, pathset, shoots, children, connector)
     while !isempty(stack)
-        shoot, seen = take!(stack)
+        sprout, seen = take!(stack)
         if seen
-            if shouldyield(shoots, shoot.node)
-                @yield takeshoot(shoots, shoot)
+            if shouldyield(shoots, nodeof(sprout))
+                @yield takeshoot(shoots, sprout)
             end
         else
-            node = shoot.node
+            node = nodeof(sprout)
             if !visitnode(pathset, node) continue end
-            put!(stack, shoot, true)
+            put!(stack, sprout, true)
             for (i, child) in enumerate(children(node))
                 if !connector(node, child) || !visitchild(pathset, node, child) continue end
-                put!(stack, putshoot(shoot, child, i), false)
+                put!(stack, putsprout(sprout, child, i), false)
             end
-            tracknode!(pathset, node, shoot.level)
+            tracknode!(pathset, node, levelof(sprout))
         end
     end
 end
@@ -300,38 +328,43 @@ end
 
 @resumable function walk(::Type{Topdown}, queue, pathset, shoots, children, connector)
     while !isempty(queue)
-        shoot = take!(queue)
-        node = shoot.node
+        sprout = take!(queue)
+        node = nodeof(sprout)
         if !visitnode(pathset, node) continue end
         if shouldyield(shoots, node)
-            @yield takeshoot(shoots, shoot)
+            @yield takeshoot(shoots, sprout)
         end
         for (i, child) in enumerate(children(node))
             if !connector(node, child) || !visitchild(pathset, node, child) continue end
-            put!(queue, putshoot(shoot, child, i))
+            put!(queue, putsprout(sprout, child, i))
         end
-        tracknode!(pathset, node, shoot.level)
+        tracknode!(pathset, node, levelof(sprout))
     end
 end
 
 ### Bottomup
 
 @resumable function walk(::Type{Bottomup}, frontier, pathset, shoots, children, connector)
-    completed = falses(length(frontier.states))
-    childrenvisited = Set{nodetypeof(Base.eltype(frontier.states))}()
     while !isempty(frontier)
-        k, shoot, parent = take!(frontier)
-        if completed[k] continue end # this path already completed via an earlier take
-        node = shoot.node
-        if any(child -> connector(node, child) && child ∉ childrenvisited, children(node)) continue end # leave node for later; completing children re-enqueue this path
-        completed[k] = true
+        k, sprout, parent = take!(frontier)
+        if frontier.completed[k] continue end # this path already completed via an earlier take
+        node = nodeof(sprout)
+        ready = true # only take this node once every connected child has been visited
+        for child in children(node)
+            if connector(node, child) && child ∉ frontier.visited
+                ready = false
+                break
+            end
+        end
+        if !ready continue end # leave node for later; completing children re-enqueue this path
+        frontier.completed[k] = true
         if parent != 0 put!(frontier, parent) end # node is done, so its parent becomes eligible
         should_visit_node = visitnode(pathset, node)
-        tracknode!(pathset, node, shoot.level)
+        tracknode!(pathset, node, levelof(sprout))
         if !should_visit_node continue end
-        push!(childrenvisited, node)
-        if shouldyield(shoots, shoot.node)
-            @yield takeshoot(shoots, shoot)
+        push!(frontier.visited, node)
+        if shouldyield(shoots, node)
+            @yield takeshoot(shoots, sprout)
         end
     end
 end

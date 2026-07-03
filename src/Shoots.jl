@@ -32,8 +32,8 @@ Selects levels only when iterating. For use in iterator functions such `preorder
 struct Level <: Shoot end
 
 # Standardisation
-canonicalshoot(::Type{S}) where {S <: Shoot} = S()
-canonicalshoot(shoots::Tuple) = map(canonicalshoot, shoots)
+standardisedshoot(::Type{S}) where {S <: Shoot} = S()
+standardisedshoot(shoots::Tuple) = map(standardisedshoot, shoots)
 
 # Separation of traces
 hastrace(::Node) = false
@@ -59,43 +59,54 @@ function totuple(trace::TraceLinks)
     return Tuple(reverse!(indices))
 end
 
-# Add on a Trace 
-growtrace(::Nothing, i) = nothing
-growtrace(trace::TraceState, i) = TraceLinks(i, trace)
-
-
-## Shoot state
+## Sprouts
 ##────────────────────────────────────────────────────────────────────────────#
-    # The state carried through a walk for each node: the node itself, its
-    # level, and (only if requested) its trace.
+    # The state carried through a walk for each node. Compulsory parts (node,
+    # level) are plain fields; the optional trace is a sum type, so that the
+    # traceless case is a dataless singleton (NoTrace) and costs nothing.
+    # Keeping the compulsory parts out of the variants matters: a union of
+    # pointer-carrying variants cannot be stored unboxed, which would cost one
+    # heap allocation per node. @cases never appears inside @resumable bodies
+    # -- it is confined to the small helpers below.
 
-struct ShootState{N, T}
+@sum_type SproutTrace begin
+    NoTrace
+    WithTrace(trace::TraceState)
+end
+
+struct Sprout{N}
     node::N
     level::Int
-    trace::T
+    trace::SproutTrace
 end
 
-Base.convert(::Type{ShootState{N, T}}, s::ShootState) where {N, T} = ShootState{N, T}(s.node, s.level, s.trace)
+nodeof(s::Sprout) = s.node
+levelof(s::Sprout) = s.level
 
-nodetypeof(::Type{ShootState{N, T}}) where {N, T} = N
-
-shoottype(shoots, ::Type{N}) where N = ShootState{N, hastrace(shoots) ? TraceState : Nothing}
-
-initshoot(shoots, root) = ShootState(root, 0, hastrace(shoots) ? () : nothing)
-putshoot(s::ShootState, child, i) = ShootState(child, s.level + 1, growtrace(s.trace, i))
-
-takeshoot(shoots::Tuple, s::ShootState) = map(sh -> takeshoot(sh, s), shoots)
-takeshoot(::Node, s::ShootState) = s.node
-takeshoot(::Trace, s::ShootState) = totuple(s.trace)
-takeshoot(::Level, s::ShootState) = s.level
-
-struct RawShoot{Sh} # internal: yields the entire ShootState, while tracking traces only if the wrapped shoots need them
-    shoots::Sh
+traceof(s::Sprout) = @cases s.trace begin
+    NoTrace => error("this sprout does not track traces")
+    WithTrace(trace) => trace
 end
-hastrace(raw::RawShoot) = hastrace(raw.shoots)
-takeshoot(::RawShoot, s::ShootState) = s
 
-yieldtype(shoots::Tuple, ::Type{S}) where {S <: ShootState} = Tuple{map(sh -> yieldtype(sh, S), shoots)...}
-yieldtype(::Node, ::Type{ShootState{N, T}}) where {N, T} = N
-yieldtype(::Trace, ::Type{<:ShootState}) = Tuple{Vararg{Int}}
-yieldtype(::Level, ::Type{<:ShootState}) = Int
+growtrace(sprouttrace::SproutTrace, i) = @cases sprouttrace begin
+    NoTrace => NoTrace
+    WithTrace(trace) => WithTrace(TraceLinks(i, trace))
+end
+
+nodetypeof(::Type{Sprout{N}}) where N = N
+
+sprouttype(shoots, ::Type{N}) where N = Sprout{N}
+
+initsprout(shoots, ::Type{N}, root) where N = Sprout{N}(root, 0, hastrace(shoots) ? WithTrace(()) : NoTrace)
+
+putsprout(s::Sprout{N}, child, i) where N = Sprout{N}(child, s.level + 1, growtrace(s.trace, i))
+
+takeshoot(shoots::Tuple, s::Sprout) = map(sh -> takeshoot(sh, s), shoots)
+takeshoot(::Node, s::Sprout) = nodeof(s)
+takeshoot(::Trace, s::Sprout) = totuple(traceof(s))
+takeshoot(::Level, s::Sprout) = levelof(s)
+
+yieldtype(shoots::Tuple, ::Type{S}) where {S <: Sprout} = Tuple{map(sh -> yieldtype(sh, S), shoots)...}
+yieldtype(::Node, ::Type{Sprout{N}}) where N = N
+yieldtype(::Trace, ::Type{<:Sprout}) = Tuple{Vararg{Int}}
+yieldtype(::Level, ::Type{<:Sprout}) = Int

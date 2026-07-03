@@ -72,27 +72,34 @@ Base.isempty(frontier::QueueFrontier) = frontier.currentidx > length(frontier.ne
 
 # Bottomup Frontier
 #─────────────────────────────────────────────────────────────────────────────
-    # Holds every shoot of the taproot in preorder (each shoot corresponds to
+    # Holds every sprout of the taproot in preorder (each sprout corresponds to
     # one unique path from the root). The queue works purely on indices into
-    # that vector: `parentidx[k]` is the index of the shoot above shoot `k`
-    # (0 for the root), so stepping to a parent is O(1).
+    # that vector: `parentidx[k]` is the index of the sprout above sprout `k`
+    # (0 for the root), so stepping to a parent is O(1). The walk's mutable
+    # state (completed paths, visited nodes) lives here too, so that the
+    # @resumable state machine only carries one concretely typed frontier.
 
-mutable struct BottomupFrontier{S} <: Frontier
+mutable struct BottomupFrontier{S, N} <: Frontier
     states::Vector{S}
     parentidx::Vector{Int}
     queue::Vector{Int}
     currentidx::Int
+    completed::Vector{Bool}
+    visited::Set{N}
 end
 
-function BottomupFrontier(states::Vector{S}, queue::Vector{Int}) where S
+function BottomupFrontier(states::Vector{S}, queue::Vector{Int}, sizeguess::Int) where S
     parentidx = Vector{Int}(undef, length(states))
-    ancestors = Int[] # preorder guarantees a shoot's parent is the latest shoot one level up
+    ancestors = Int[] # preorder guarantees a sprout's parent is the latest sprout one level up
     for (k, state) in enumerate(states)
-        resize!(ancestors, state.level)
-        parentidx[k] = state.level == 0 ? 0 : ancestors[state.level]
+        level = levelof(state)
+        resize!(ancestors, level)
+        parentidx[k] = level == 0 ? 0 : ancestors[level]
         push!(ancestors, k)
     end
-    return BottomupFrontier{S}(states, parentidx, queue, 1)
+    N = nodetypeof(S)
+    visited = sizehint!(Set{N}(), sizeguess)
+    return BottomupFrontier{S, N}(states, parentidx, queue, 1, fill(false, length(states)), visited)
 end
 
 put!(frontier::BottomupFrontier, k::Int) = push!(frontier.queue, k)
