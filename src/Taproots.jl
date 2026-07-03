@@ -5,7 +5,7 @@ module Taproots
 using ResumableFunctions, PrecompileTools
 export Taproot, tapin, tapout,
     eachfield,
-    children, data, setchildren!, setdata!,
+    children, childtype, childtypes, data, setchildren!, setdata!,
     ischild, isparent, isleaf, isbranch,
     preorder, postorder, topdown, bottomup, leaves, branches, traces, tracepairs,
     AllPaths, NoCycles, OncePerNode, OncePerEdge,

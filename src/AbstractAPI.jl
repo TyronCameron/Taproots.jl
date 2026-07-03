@@ -24,6 +24,39 @@ children(node::Vector) = node
 children(node::Taproot) = node.children
 
 """
+    childtype(node)
+
+Gets the eltype of the children nodes in a Taproot DAG (if defined) of `node`. 
+This function is automatic ones the children function is defined.
+"""
+childtype(::Type{Any}) = Any
+childtype(::Type{X}) where X = Base.eltype(Base.promote_op(children, X))
+
+childunion(T::Union) = Union{childunion(T.a), childunion(T.b)}
+childunion(T::Type) = childtype(T)
+unionwidth(T::Union) = unionwidth(T.a) + unionwidth(T.b)
+unionwidth(::Type) = 1
+
+const NODETYPE_MAX_DEPTH = 3
+const NODETYPE_MAX_WIDTH = 4
+
+"""
+    childtypes(node)
+
+Gets a type which we believe is the union of all children types (recursively). Gives up after depth 3 and width 4, falling back to Any. 
+"""
+function childtypes(root)
+    T = typeof(root)
+    for _ in 1:NODETYPE_MAX_DEPTH
+        (T === Any || unionwidth(T) > NODETYPE_MAX_WIDTH) && return Any
+        C = childunion(T)
+        C <: T && return T
+        T = Union{T, C}
+    end
+    return Any
+end
+
+"""
     eachfield(x)
 
 Returns a tuple of the values in each field in a struct. Nice for if you have a known number of children.
