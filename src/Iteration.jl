@@ -158,51 +158,99 @@ tracepairs(args...; kwargs...) = preorder(args...; kwargs..., eltype = (Trace, N
 ## Standardise args and multi taproots
 ##────────────────────────────────────────────────────────────────────────────#
 
+alwaysconnect(node, child) = true
+
 function standardised_iterate_taproot(walk_order::Type{<:WalkOrder}, taproot, taproots...; kwargs...) # no children function
     standardised_iterate_taproot(walk_order, children, taproot, taproots...; kwargs...)
-end 
+end
 
 function standardised_iterate_taproot( # Allow passing the `children` function
     walk_order::Type{<:WalkOrder},
-    children,
+    children::Union{Function, Type},
     taproot,
-    taproots...; 
-    connector = (node, child) -> true, 
-    pathset::Type{<:PathSet} = OncePerNode, 
+    taproots...;
+    connector = alwaysconnect,
+    pathset::Type{<:PathSet} = OncePerNode,
     eltype::Union{Type{<:Shoot}, Tuple} = Node
 )
     iterate_multi_taproot(
         walk_order,
         children,
         taproot,
-        taproots; 
-        connector = connector, 
-        pathset = pathset, 
+        taproots;
+        connector = connector,
+        pathset = pathset,
         eltype = eltype
     )
-end 
+end
 
 # For a set of Taproots, I think just create a single parent which has all the listed taproots as children
 # That way, all nodes are iterated over in the correct order, even bottomup and topdown
 # The MultiTaproot just can't be part of the final result
 struct MultiTaproot{T}
     children::T
-end 
+end
 children(x::MultiTaproot) = x.children
 
-function iterate_multi_taproot( 
+shouldyield(shoots, node) = !(node isa MultiTaproot) # single-root walks: constant-folds to true
+shouldyield(::RawShoot, node) = true # bottomup's preorder pass needs every state, incl. the synthetic root
+
+function iterate_multi_taproot(
     walk_order,
     children,
     taproot,
-    taproots; 
-    connector = (node, child) -> true, 
-    pathset = AllPaths, 
+    taproots;
+    connector = alwaysconnect,
+    pathset = AllPaths,
     eltype = Node
 )
+    shoots = canonicalshoot(eltype)
     if length(taproots) == 0
-        return walk(walk_order, initpathset(pathset), eltype, children, connector, taproot)
-    end 
-    return Iterators.drop(walk(walk_order, initpathset(pathset), eltype, children, connector, MultiTaproot((taproot, taproots...))), 1)
+        return buildwalk(walk_order, shoots, children, connector, pathset, taproot)
+    end
+    return buildwalk(walk_order, shoots, children, connector, pathset, MultiTaproot((taproot, taproots...)))
+end
+
+## Typed walk construction
+##────────────────────────────────────────────────────────────────────────────#
+    # Function barrier: compute the node type, the concrete shoot type, the
+    # frontier and the typed pathset *before* entering the @resumable walk, so
+    # that the state machine's fields are all concretely inferred. The FSM is
+    # wrapped in a TapWalk purely to give the iterator a concrete eltype.
+
+struct TapWalk{T, I}
+    fsm::I
+end
+TapWalk{T}(fsm) where T = TapWalk{T, typeof(fsm)}(fsm)
+
+Base.eltype(::Type{TapWalk{T, I}}) where {T, I} = T
+Base.IteratorSize(::Type{<:TapWalk}) = Base.SizeUnknown()
+
+function Base.iterate(w::TapWalk{T}, state = nothing) where T
+    result = iterate(w.fsm, state)
+    result === nothing && return nothing
+    return (first(result)::T, nothing)
+end
+
+function buildwalk(walk_order, shoots, children, connector, pathset, root)
+    N = childtypes(root)
+    S = shoottype(shoots, N)
+    fsm = makewalk(walk_order, S, initpathset(pathset, N), shoots, children, connector, root)
+    return TapWalk{yieldtype(shoots, S)}(fsm)
+end
+
+function makewalk(walk_order::Type{<:WalkOrder}, ::Type{S}, pathset, shoots, children, connector, root) where S
+    walk(walk_order, initfrontier(walk_order, S, shoots, children, connector, root), pathset, shoots, children, connector)
+end
+
+initfrontier(::Type{Preorder}, ::Type{S}, shoots, children, connector, root) where S = StackFrontier{S}(S[initshoot(shoots, root)])
+initfrontier(::Type{Postorder}, ::Type{S}, shoots, children, connector, root) where S = PostorderStackFrontier{S}(S[initshoot(shoots, root)], [false])
+initfrontier(::Type{Topdown}, ::Type{S}, shoots, children, connector, root) where S = QueueFrontier{S}(S[initshoot(shoots, root)], 1)
+
+function initfrontier(::Type{Bottomup}, ::Type{S}, shoots, children, connector, root) where S # eagerly map out the taproot in preorder
+    fsm = makewalk(Preorder, S, initpathset(NoCycles, nodetypeof(S)), RawShoot(shoots), children, connector, root)
+    states = collect(TapWalk{S}(fsm))
+    return BottomupFrontier(states, [k for (k, state) in enumerate(states) if isleaf(state.node)])
 end
 
 ## Walk in different orders
@@ -210,96 +258,80 @@ end
 
 ### Preorder
 
-@resumable function walk(::Type{Preorder}, pathset::PathSet, eltype, children, connector, root)
-    stack = StackFrontier{NamedTuple}([initshoot(eltype, root)])
+@resumable function walk(::Type{Preorder}, stack, pathset, shoots, children, connector)
     while !isempty(stack)
-        shoot, node, level = take!(stack)
-        if !visitnode(pathset, node) continue end 
-        @yield takeshoot(eltype, shoot)
+        shoot = take!(stack)
+        node = shoot.node
+        if !visitnode(pathset, node) continue end
+        if shouldyield(shoots, node)
+            @yield takeshoot(shoots, shoot)
+        end
         for (i, child) in enumerate(children(node))
-            if !connector(node, child) || !visitchild(pathset, node, child) continue end 
-            put!(stack, putshoot(eltype, shoot, (node = child, levelincrement = 1, i = i))) 
-        end 
-        tracknode!(pathset, node, level)
+            if !connector(node, child) || !visitchild(pathset, node, child) continue end
+            put!(stack, putshoot(shoot, child, i))
+        end
+        tracknode!(pathset, node, shoot.level)
     end
 end
 
 ### Postorder
 
-@resumable function walk(::Type{Postorder}, pathset, eltype, children, connector, root)
-    stack = PostorderStackFrontier{NamedTuple}([initshoot(eltype, root)], [false])
+@resumable function walk(::Type{Postorder}, stack, pathset, shoots, children, connector)
     while !isempty(stack)
-        shoot, node, level, seen = take!(stack)
+        shoot, seen = take!(stack)
         if seen
-            @yield takeshoot(eltype, shoot)
-        else
-            if !visitnode(pathset, node) continue end
-            put!(stack, (shoot, true))
-            for (i, child) in enumerate(children(node))
-                if !connector(node, child) || !visitchild(pathset, node, child) continue end 
-                put!(stack, (putshoot(eltype, shoot, (node = child, levelincrement = 1, i = i)), false))
+            if shouldyield(shoots, shoot.node)
+                @yield takeshoot(shoots, shoot)
             end
-            tracknode!(pathset, node, level)
+        else
+            node = shoot.node
+            if !visitnode(pathset, node) continue end
+            put!(stack, shoot, true)
+            for (i, child) in enumerate(children(node))
+                if !connector(node, child) || !visitchild(pathset, node, child) continue end
+                put!(stack, putshoot(shoot, child, i), false)
+            end
+            tracknode!(pathset, node, shoot.level)
         end
     end
 end
 
 ### Topdown
 
-@resumable function walk(::Type{Topdown}, pathset, eltype, children, connector, root)
-    queue = QueueFrontier{Union{<:NamedTuple, Nothing}}([initshoot(eltype, root)], 1)
+@resumable function walk(::Type{Topdown}, queue, pathset, shoots, children, connector)
     while !isempty(queue)
-        shoot, node, level = take!(queue)
-        if !visitnode(pathset, node) continue end 
-        @yield takeshoot(eltype, shoot)
-        for (i, child) in enumerate(children(node))
-            if !connector(node, child) || !visitchild(pathset, node, child) continue end 
-            put!(queue, putshoot(eltype, shoot, (node = child, levelincrement = 1, i = i))) 
-        end 
-        tracknode!(pathset, node, level)
-    end
-end
-
-### Bottomup 
-
-@resumable function walk(::Type{Bottomup}, pathset, eltype, children, connector, root)
-    leaves = filter(x -> isleaf(x[end]), preorder(children, root; pathset = NoCycles, connector = connector, eltype = (Trace, Node)) |> collect)
-    tracequeue = BottomupFrontier(root, map(x -> x[begin], leaves))
-    tracepathset = initpathset(OncePerNode)
-    childrenvisited = Set()
-    while !isempty(tracequeue)
-        node, trace, level = take!(tracequeue)
-        if !isempty(trace) put!(tracequeue, trace[begin:end-1]) end
-        if any(child -> connector(node, child) && child ∉ childrenvisited, children(node)) continue end # leave node for later if any connected unvisited child
-        should_visit_node = visitnode(pathset, node)
-        tracknode!(pathset, node, level)
-        should_visit_trace = visitnode(tracepathset, trace)
-        tracknode!(tracepathset, trace, level)
-        if !should_visit_node || !should_visit_trace continue end # Must be separate to track 
-        push!(childrenvisited, node)
-        @yield takeshoot(eltype, (level = level, trace = trace, node = node))
-    end
-end
-
-function walk_bottomup(ch, root; revisit = false, connector = x -> true)
-    leaves = filter(x -> isleaf(x[end]), tracepairs(root; revisit = true, connector = x -> !ischild(x, x; revisit = true) && connector(x)) |> collect)
-    tracequeue = map(x -> x[begin], leaves)
-    visited = Set()
-    visitedtraces = Set()
-    childrenvisited = Set()
-    while !isempty(tracequeue)
-        orig_trace = popfirst!(tracequeue)
-        node = pluck(root, orig_trace)
-        trace = copy(orig_trace)
-        if !isempty(trace)
-            pop!(trace)
-            push!(tracequeue, trace)
+        shoot = take!(queue)
+        node = shoot.node
+        if !visitnode(pathset, node) continue end
+        if shouldyield(shoots, node)
+            @yield takeshoot(shoots, shoot)
         end
-        if any(child -> child ∉ childrenvisited, children(connector, node)) continue end 
-        node_visited = visited!(node, visited, revisit)
-        trace_visited = visited!(orig_trace, visitedtraces)
-        if node_visited || trace_visited continue end # list separately so we don't shortcircuit
+        for (i, child) in enumerate(children(node))
+            if !connector(node, child) || !visitchild(pathset, node, child) continue end
+            put!(queue, putshoot(shoot, child, i))
+        end
+        tracknode!(pathset, node, shoot.level)
+    end
+end
+
+### Bottomup
+
+@resumable function walk(::Type{Bottomup}, frontier, pathset, shoots, children, connector)
+    completed = falses(length(frontier.states))
+    childrenvisited = Set{nodetypeof(Base.eltype(frontier.states))}()
+    while !isempty(frontier)
+        k, shoot, parent = take!(frontier)
+        if completed[k] continue end # this path already completed via an earlier take
+        node = shoot.node
+        if any(child -> connector(node, child) && child ∉ childrenvisited, children(node)) continue end # leave node for later; completing children re-enqueue this path
+        completed[k] = true
+        if parent != 0 put!(frontier, parent) end # node is done, so its parent becomes eligible
+        should_visit_node = visitnode(pathset, node)
+        tracknode!(pathset, node, shoot.level)
+        if !should_visit_node continue end
         push!(childrenvisited, node)
-        put!(ch, node)
+        if shouldyield(shoots, shoot.node)
+            @yield takeshoot(shoots, shoot)
+        end
     end
 end
