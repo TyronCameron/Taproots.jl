@@ -4,6 +4,7 @@ version = "0.3.2"
 authors = ["TyronCameron <tyron.luke.cameron@gmail.com>"]
 
 [deps]
+CausalAssignment = "4035c85e-6b2c-4ea2-9ed7-edd613696877"
 PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
 ResumableFunctions = "c5292f4c-5179-55e1-98c5-05642aab7184"
 
@@ -20,6 +21,7 @@ TaprootTerm = ["Term", "AbstractTrees"]
 
 [compat]
 AbstractTrees = "^0.4.5"
+CausalAssignment = "0.1.0"
 GraphRecipes = "^0.5.13"
 Plots = "1.41.6"
 PrecompileTools = "1.0.0"
