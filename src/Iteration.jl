@@ -319,11 +319,7 @@ end
     while !isempty(frontier)
         k = take!(frontier) # only taken once all of this sprout's children were taken
         sprout = frontier.states[k]
-        parent = frontier.parentidx[k]
-        if parent != 0 # this sprout is done, so its parent is one child closer to eligible
-            frontier.pending[parent] -= 1
-            if frontier.pending[parent] == 0 put!(frontier, parent) end
-        end
+        release!(frontier, k)
         node = nodeof(sprout)
         should_visit_node = visitnode(pathset, node)
         tracknode!(pathset, node, levelof(sprout))

@@ -11,7 +11,7 @@ export Taproot, tapin, tapout,
     AllPaths, NoCycles, OncePerNode, OncePerEdge,
     Trace, Level, Node,
     adjacencymatrix,
-    tapmap!, tapmap, tapmapif!, tapmapif, leafmap!, leafmap, branchmap!, branchmap, prune!, prune, leafprune!, leafprune, branchprune!, branchprune,
+    tapmap!, tapmap, paralleltapmap!, paralleltapmap, tapmapif!, tapmapif, leafmap!, leafmap, branchmap!, branchmap, prune!, prune, leafprune!, leafprune, branchprune!, branchprune,
     findtrace, findtraces, pluck, graft!, getatkeys, setatkeys!, uproot
 
 include(joinpath(@__DIR__, "Taproot.jl"))

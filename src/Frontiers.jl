@@ -116,6 +116,13 @@ end
 
 put!(frontier::BottomupFrontier, k::Int) = push!(frontier.queue, k)
 
+function release!(frontier::BottomupFrontier, k::Int) # sprout k is done, so its parent is one child closer to eligible
+    parent = frontier.parentidx[k]
+    if parent == 0 return end
+    frontier.pending[parent] -= 1
+    if frontier.pending[parent] == 0 put!(frontier, parent) end
+end
+
 function take!(frontier::BottomupFrontier) # returns the index; look up states/parentidx from it
     k = frontier.queue[frontier.currentidx]
     frontier.currentidx += 1

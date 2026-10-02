@@ -32,18 +32,76 @@ function _copy_or_reconstruct(x)
     end
 end
 
+_apply(condition, f, node) = condition(node) ? setdata!(node, f(data(node))) : node # conditionally apply f
+
 function _applyif!(condition, f, node, visited)
     if ismutable(node) && node ∈ visited return node end # don't do the same thing to a mutable struct twice
     push!(visited, node)
-    return condition(node) ? setdata!(node, f(data(node))) : node # conditionally apply f
+    return _apply(condition, f, node)
 end
 
-function maphelper!(condition, f, taproot)
+# Builds the same node => g(node) map as the sequential passes, but runs g on many threads.
+# Works off the bottomup frontier, so g only starts on a node once all of its children are done.
+function parallelnodemap(g, taproot)
+    shoots = Node()
+    frontier = initfrontier(Bottomup, sprouttype(shoots, childtypes(taproot)), shoots, children, alwaysconnect, taproot)
+    node_map = Dict()
+    started = Dict{Any, Base.Event}() # a DAG node has one sprout per path; the first runs g, the rest wait on it
+    cond = Threads.Condition()
+    inflight = 0
+    failure = Ref{Any}(nothing)
+    function worker()
+        while true
+            k, owner, done = lock(cond) do
+                while isempty(frontier) && inflight > 0 && failure[] === nothing
+                    wait(cond)
+                end
+                if isempty(frontier) || failure[] !== nothing return (0, false, Base.Event()) end
+                inflight += 1
+                taken = take!(frontier)
+                isnew = !haskey(started, nodeof(frontier.states[taken]))
+                (taken, isnew, get!(Base.Event, started, nodeof(frontier.states[taken])))
+            end
+            if k == 0 return end
+            node = nodeof(frontier.states[k])
+            if owner
+                try
+                    result = g(node)
+                    lock(() -> node_map[node] = result, cond)
+                catch err
+                    lock(cond) do
+                        if failure[] === nothing failure[] = err end
+                        notify(cond)
+                    end
+                    return
+                finally
+                    notify(done)
+                end
+            else
+                wait(done)
+            end
+            lock(cond) do
+                release!(frontier, k)
+                inflight -= 1
+                notify(cond)
+            end
+        end
+    end
+    foreach(wait, [Threads.@spawn worker() for _ in 1:Threads.nthreads()])
+    if failure[] !== nothing throw(failure[]) end
+    return node_map
+end
+
+function maphelper!(condition, f, taproot, parallel = false)
     visited = Set()
     post = collect(postorder(taproot))
-    node_map = foldl(post; init = Dict()) do acc, node
-        get!(acc, node, _applyif!(condition, f, node, visited))
-        acc
+    node_map = if parallel
+        parallelnodemap(node -> _apply(condition, f, node), taproot)
+    else
+        foldl(post; init = Dict()) do acc, node
+            get!(acc, node, _applyif!(condition, f, node, visited))
+            acc
+        end
     end
     for node in post
         new_node = get!(node_map, node, node)
@@ -53,12 +111,16 @@ function maphelper!(condition, f, taproot)
     return get!(node_map, taproot, taproot)
 end
 
-function maphelper(condition, f, taproot) 
+function maphelper(condition, f, taproot, parallel = false) 
     visited = Set()
     post = collect(postorder(taproot))
-    node_map = foldl(post; init = Dict()) do acc, node
-        get!(acc, node, _applyif!(condition, f, _copy_or_reconstruct(node), visited))
-        acc
+    node_map = if parallel
+        parallelnodemap(node -> _apply(condition, f, _copy_or_reconstruct(node)), taproot)
+    else
+        foldl(post; init = Dict()) do acc, node
+            get!(acc, node, _applyif!(condition, f, _copy_or_reconstruct(node), visited))
+            acc
+        end
     end
     for node in post
         new_node = get!(node_map, node, node)
@@ -83,6 +145,24 @@ Deepcopy a taproot and then modify its nodes in place. `f` only acts on the data
 This can handle mutable and immutable trees.
 """
 tapmap(f::Function, taproot) = maphelper(x -> true, f, taproot)
+
+"""
+    paralleltapmap!(f::Function, taproot)
+
+Same as `tapmap!`, but runs `f` on many threads (`Threads.nthreads()`). All leaves start straight away, and each parent 
+becomes available as soon as its last child is done, so `f` never runs on a node before it has run on all of that node's children.
+Each unique node is only mapped once, even if it is shared by several parents.
+
+Only worth it when `f` is expensive. Nodes on a cycle (and their ancestors) are left unmapped, as with `bottomup`.
+"""
+paralleltapmap!(f::Function, taproot) = maphelper!(x -> true, f, taproot, true)
+
+"""
+    paralleltapmap(f::Function, taproot)
+
+Same as `tapmap`, but runs `f` on many threads. See `paralleltapmap!`.
+"""
+paralleltapmap(f::Function, taproot) = maphelper(x -> true, f, taproot, true)
 
 """
     tapmapif!(condition::Function, f::Function, taproot)
