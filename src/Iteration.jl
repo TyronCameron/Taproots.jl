@@ -251,18 +251,33 @@ Base.eltype(::Type{<:Walk{O, T}}) where {O, T} = T
 Base.IteratorSize(::Type{<:Walk}) = Base.SizeUnknown()
 @inline Base.iterate(walker::Walk, state = nothing) = walk!(walker) ? (walker.value, nothing) : nothing
 
+function Base.collect(walker::Walk{O, T}) where {O, T}
+    out = T[]
+    if walker.state === FRESH
+        walk!(walker, x -> push!(out, x))
+    else
+        for x in walker push!(out, x) end
+    end
+    return out
+end
+
 walkparts(walker::Walk) = (walker.frontier, walker.pathset, walker.shoots, walker.children, walker.connector)
 finish!(walker::Walk) = (walker.state = FINISHED; false)
 
-# Inside `walk!(walker)`: hand `value` out of the walk, remembering `sprout`.
+# Inside `walk!(walker, sink)`: hand `value` out of the walk, remembering `sprout`.
 # The matching `@resume` jumps back to the label right after this.
+# With a `sink`, the walk runs eagerly instead: `value` goes to `sink` and the loop carries on.
 macro yield(value)
     esc(quote
-        walker.value = $value
-        walker.sprout = sprout
-        walker.state = $SUSPENDED
-        return true
-        @label resume
+        if sink === nothing
+            walker.value = $value
+            walker.sprout = sprout
+            walker.state = $SUSPENDED
+            return true
+            @label resume
+        else
+            sink($value)
+        end
     end)
 end
 
@@ -270,7 +285,7 @@ end
 macro resume(walker)
     esc(quote
         $walker.state === $FINISHED && return false
-        if $walker.state === $SUSPENDED
+        if sink === nothing && $walker.state === $SUSPENDED
             sprout = $walker.sprout
             node = nodeof(sprout)
             @goto resume
@@ -299,7 +314,7 @@ end
 
 ### Preorder
 
-function walk!(walker::Walk{Preorder})
+function walk!(walker::Walk{Preorder}, sink = nothing)
     stack, pathset, shoots, children, connector = walkparts(walker)
     @resume walker
     while !isempty(stack)
@@ -320,7 +335,7 @@ end
 
 ### Postorder
 
-function walk!(walker::Walk{Postorder})
+function walk!(walker::Walk{Postorder}, sink = nothing)
     stack, pathset, shoots, children, connector = walkparts(walker)
     @resume walker
     while !isempty(stack)
@@ -345,7 +360,7 @@ end
 
 ### Topdown
 
-function walk!(walker::Walk{Topdown})
+function walk!(walker::Walk{Topdown}, sink = nothing)
     queue, pathset, shoots, children, connector = walkparts(walker)
     @resume walker
     while !isempty(queue)
@@ -366,7 +381,7 @@ end
 
 ### Bottomup
 
-function walk!(walker::Walk{Bottomup})
+function walk!(walker::Walk{Bottomup}, sink = nothing)
     frontier, pathset, shoots, children, connector = walkparts(walker)
     @resume walker
     while !isempty(frontier)
