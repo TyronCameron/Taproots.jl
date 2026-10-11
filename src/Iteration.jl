@@ -36,7 +36,7 @@ end
 collect(preorder(x)) <: Vector
 ```
 """
-preorder(args...; kwargs...) = standardised_iterate_taproot(Preorder, args...; kwargs...)
+Base.@constprop :aggressive preorder(args...; kwargs...) = standardised_iterate_taproot(Preorder, args...; kwargs...)
 
 """
     postorder([children], taproots...; kwargs...)
@@ -65,7 +65,7 @@ end
 collect(postorder(x)) <: Vector
 ```
 """
-postorder(args...; kwargs...) = standardised_iterate_taproot(Postorder, args...; kwargs...)
+Base.@constprop :aggressive postorder(args...; kwargs...) = standardised_iterate_taproot(Postorder, args...; kwargs...)
 
 """
     topdown([children], taproots...; kwargs...)
@@ -95,7 +95,7 @@ end
 collect(topdown(x)) <: Vector
 ```
 """
-topdown(args...; kwargs...) = standardised_iterate_taproot(Topdown, args...; kwargs...)
+Base.@constprop :aggressive topdown(args...; kwargs...) = standardised_iterate_taproot(Topdown, args...; kwargs...)
 
 """
     bottomup([children], taproots...; kwargs...)
@@ -125,7 +125,7 @@ end
 collect(bottomup(x)) <: Vector
 ```
 """
-bottomup(args...; kwargs...) = standardised_iterate_taproot(Bottomup, args...; kwargs...)
+Base.@constprop :aggressive bottomup(args...; kwargs...) = standardised_iterate_taproot(Bottomup, args...; kwargs...)
 
 """
     leaves([children,] taproot; kwargs...)
@@ -134,7 +134,7 @@ Shorthand for `Iterators.filter(isleaf, preorder([children,] taproot; kwargs...)
 Only works for `eltype = Node`. 
 
 """
-leaves(args...; kwargs...) = Iterators.filter(isleaf, preorder(args...; kwargs...))
+Base.@constprop :aggressive leaves(args...; kwargs...) = Iterators.filter(isleaf, preorder(args...; kwargs...))
 
 """
     branches([children,] taproot; kwargs...)
@@ -142,21 +142,21 @@ leaves(args...; kwargs...) = Iterators.filter(isleaf, preorder(args...; kwargs..
 Shorthand for `Iterators.filter(isbranch, preorder([children,] taproot; kwargs...))`.
 Only works for `eltype = Node`.
 """
-branches(args...; kwargs...) = Iterators.filter(isbranch, preorder(args...; kwargs...))
+Base.@constprop :aggressive branches(args...; kwargs...) = Iterators.filter(isbranch, preorder(args...; kwargs...))
 
 """
     traces([children,] taproot; kwargs...)
 
 Shorthand for `preorder(args...; kwargs..., eltype = Trace)`.
 """
-traces(args...; kwargs...) = preorder(args...; kwargs..., eltype = Trace)
+Base.@constprop :aggressive traces(args...; kwargs...) = preorder(args...; kwargs..., eltype = Trace)
 
 """
     tracepairs([children,] taproot; kwargs...)
 
 Shorthand for `preorder(args...; kwargs..., eltype = (Trace, Node))`.
 """
-tracepairs(args...; kwargs...) = preorder(args...; kwargs..., eltype = (Trace, Node))
+Base.@constprop :aggressive tracepairs(args...; kwargs...) = preorder(args...; kwargs..., eltype = (Trace, Node))
 
 
 ## Standardise args and multi taproots
@@ -164,11 +164,11 @@ tracepairs(args...; kwargs...) = preorder(args...; kwargs..., eltype = (Trace, N
 
 alwaysconnect(node, child) = true
 
-function standardised_iterate_taproot(walk_order::Type{<:WalkOrder}, taproot, taproots...; kwargs...) # no children function
+Base.@constprop :aggressive function standardised_iterate_taproot(walk_order::Type{<:WalkOrder}, taproot, taproots...; kwargs...) # no children function
     standardised_iterate_taproot(walk_order, children, taproot, taproots...; kwargs...)
 end
 
-function standardised_iterate_taproot( # Allow passing the `children` function
+Base.@constprop :aggressive function standardised_iterate_taproot( # Allow passing the `children` function
     walk_order::Type{<:WalkOrder},
     children::Union{Function, Type},
     taproot,
@@ -201,7 +201,7 @@ children(x::MultiTaproot) = x.children
 shouldyield(shoots, node) = !(node isa MultiTaproot) # single-root walks: constant-folds to true
 shouldyield(::WholeSprout, node) = true # the bottomup mapping pass needs every sprout, incl. the synthetic multi-root parent
 
-function iterate_multi_taproot(
+Base.@constprop :aggressive function iterate_multi_taproot(
     walk_order,
     children,
     taproot,
@@ -220,27 +220,69 @@ end
 
 ## Typed walk construction
 ##────────────────────────────────────────────────────────────────────────────#
+    # A Walk is a lightweight coroutine. `walk!` runs a walk's while loop until it
+    # hits `@yield`, which parks the current sprout and the yielded value in the
+    # Walk and returns. The next `walk!` call starts with `@resume`, which jumps
+    # straight back to just after that `@yield`, so the loop carries on exactly
+    # where it left off. Every field is concretely typed, so walks are type stable
+    # and yielding a tuple or struct never allocates.
 
-struct TypedWalk{T, I}
-    resumable::I
+const FRESH = 0x00
+const SUSPENDED = 0x01
+const FINISHED = 0x02
+
+mutable struct Walk{O <: WalkOrder, T, F, P, Sh, C, K, S}
+    frontier::F
+    pathset::P
+    shoots::Sh
+    children::C
+    connector::K
+    sprout::S # the sprout held at the last @yield: the only local still needed after a yield
+    value::T # the last yielded value
+    state::UInt8 # FRESH, SUSPENDED or FINISHED
+    function Walk{O, T}(frontier::F, pathset::P, shoots::Sh, children::C, connector::K, sprout::S) where {O, T, F, P, Sh, C, K, S}
+        walker = new{O, T, F, P, Sh, C, K, S}(frontier, pathset, shoots, children, connector, sprout)
+        walker.state = FRESH
+        return walker
+    end
 end
-TypedWalk{T}(resumable) where T = TypedWalk{T, typeof(resumable)}(resumable)
 
-Base.eltype(::Type{TypedWalk{T, I}}) where {T, I} = T
-Base.IteratorSize(::Type{<:TypedWalk}) = Base.SizeUnknown()
+Base.eltype(::Type{<:Walk{O, T}}) where {O, T} = T
+Base.IteratorSize(::Type{<:Walk}) = Base.SizeUnknown()
+@inline Base.iterate(walker::Walk, state = nothing) = walk!(walker) ? (walker.value, nothing) : nothing
 
-function Base.iterate(w::TypedWalk{T}, state = nothing) where T
-    result = iterate(w.resumable, state)
-    result === nothing && return nothing
-    return (first(result)::T, nothing)
+walkparts(walker::Walk) = (walker.frontier, walker.pathset, walker.shoots, walker.children, walker.connector)
+finish!(walker::Walk) = (walker.state = FINISHED; false)
+
+# Inside `walk!(walker)`: hand `value` out of the walk, remembering `sprout`.
+# The matching `@resume` jumps back to the label right after this.
+macro yield(value)
+    esc(quote
+        walker.value = $value
+        walker.sprout = sprout
+        walker.state = $SUSPENDED
+        return true
+        @label resume
+    end)
+end
+
+# First line of `walk!(walker)`: carry on from the last `@yield`, if there was one.
+macro resume(walker)
+    esc(quote
+        $walker.state === $FINISHED && return false
+        if $walker.state === $SUSPENDED
+            sprout = $walker.sprout
+            node = nodeof(sprout)
+            @goto resume
+        end
+    end)
 end
 
 function buildwalk(walk_order, shoots, children, connector, pathset, root; sizeguess = 256)
     N = childtypes(root)
     S = sprouttype(shoots, N)
     frontier = initfrontier(walk_order, S, shoots, children, connector, root, sizeguess)
-    resumable = walk(walk_order, frontier, initpathset(pathset, N; sizeguess), shoots, children, connector)
-    return TypedWalk{yieldtype(shoots, S)}(resumable)
+    return Walk{walk_order, yieldtype(shoots, S)}(frontier, initpathset(pathset, N; sizeguess), shoots, children, connector, initsprout(S, root))
 end
 
 firstsprout(::Type{S}, shoots, root, sizeguess = 8) where S = sizehint!(S[initsprout(S, root)], sizeguess)
@@ -257,7 +299,9 @@ end
 
 ### Preorder
 
-@resumable function walk(::Type{Preorder}, stack, pathset, shoots, children, connector)
+function walk!(walker::Walk{Preorder})
+    stack, pathset, shoots, children, connector = walkparts(walker)
+    @resume walker
     while !isempty(stack)
         sprout = take!(stack)
         node = nodeof(sprout)
@@ -271,11 +315,14 @@ end
         end
         tracknode!(pathset, node, levelof(sprout))
     end
+    return finish!(walker)
 end
 
 ### Postorder
 
-@resumable function walk(::Type{Postorder}, stack, pathset, shoots, children, connector)
+function walk!(walker::Walk{Postorder})
+    stack, pathset, shoots, children, connector = walkparts(walker)
+    @resume walker
     while !isempty(stack)
         sprout, seen = take!(stack)
         if seen
@@ -293,11 +340,14 @@ end
             tracknode!(pathset, node, levelof(sprout))
         end
     end
+    return finish!(walker)
 end
 
 ### Topdown
 
-@resumable function walk(::Type{Topdown}, queue, pathset, shoots, children, connector)
+function walk!(walker::Walk{Topdown})
+    queue, pathset, shoots, children, connector = walkparts(walker)
+    @resume walker
     while !isempty(queue)
         sprout = take!(queue)
         node = nodeof(sprout)
@@ -311,11 +361,14 @@ end
         end
         tracknode!(pathset, node, levelof(sprout))
     end
+    return finish!(walker)
 end
 
 ### Bottomup
 
-@resumable function walk(::Type{Bottomup}, frontier, pathset, shoots, children, connector)
+function walk!(walker::Walk{Bottomup})
+    frontier, pathset, shoots, children, connector = walkparts(walker)
+    @resume walker
     while !isempty(frontier)
         k = take!(frontier) # only taken once all of this sprout's children were taken
         sprout = frontier.states[k]
@@ -332,4 +385,5 @@ end
             @yield takeshoot(shoots, sprout)
         end
     end
+    return finish!(walker)
 end

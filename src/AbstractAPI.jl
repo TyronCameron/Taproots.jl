@@ -45,15 +45,14 @@ const NODETYPE_MAX_WIDTH = 4
 
 Gets a type which we believe is the union of all children types (recursively). Gives up after depth 3 and width 4, falling back to Any. 
 """
-function childtypes(root)
-    T = typeof(root)
-    for _ in 1:NODETYPE_MAX_DEPTH
-        (T === Any || unionwidth(T) > NODETYPE_MAX_WIDTH) && return Any
-        C = childunion(T)
-        C <: T && return T
-        T = Union{T, C}
-    end
-    return Any
+childtypes(root) = childtypes(typeof(root), Val(NODETYPE_MAX_DEPTH))
+# Recursing on the remaining depth (rather than looping) lets inference resolve the result at compile time
+childtypes(::Type, ::Val{0}) = Any
+function childtypes(::Type{T}, ::Val{D}) where {T, D}
+    (T === Any || unionwidth(T) > NODETYPE_MAX_WIDTH) && return Any
+    C = childunion(T)
+    C <: T && return T
+    return childtypes(Union{T, C}, Val(D - 1))
 end
 
 """

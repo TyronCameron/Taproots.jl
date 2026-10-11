@@ -58,12 +58,20 @@ const TraceState = Union{Tuple{}, TraceLinks}
 # Convert TraceLinks back to tuple 
 totuple(trace::Tuple) = trace
 function totuple(trace::TraceLinks)
-    indices = Int[]
-    while trace isa TraceLinks
-        push!(indices, trace.i)
-        trace = trace.parent
+    depth = 0
+    link = trace
+    while link isa TraceLinks
+        depth += 1
+        link = link.parent
     end
-    return Tuple(reverse!(indices))
+    indices = Vector{Int}(undef, depth) # filled back to front, root-most index first
+    link = trace
+    while link isa TraceLinks
+        indices[depth] = link.i
+        depth -= 1
+        link = link.parent
+    end
+    return ntuple(i -> @inbounds(indices[i]), length(indices)) # much faster than Tuple(::Vector) for shallow traces
 end
 
 #─────────────────────────────────────────────────────────────────────────────#
