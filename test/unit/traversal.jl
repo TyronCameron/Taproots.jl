@@ -31,6 +31,11 @@ iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)
 		@debug "Right hand side = $(different_heights_ans)"
 		@debug "-------------------------------------------------------------"
 		@test all(bottomup(different_heights) |> to_compare .== different_heights_ans)
+
+		b = Taproot("B", Taproot[])
+		a = Taproot("A", [b])
+		r = Taproot("R", [b, a])
+		@test map(x -> x.data, collect(bottomup(r))) == ["B", "A", "R"]
 	end
 
 	@testset "leaves" begin

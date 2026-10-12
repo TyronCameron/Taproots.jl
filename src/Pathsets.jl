@@ -10,6 +10,8 @@
 
 abstract type PathSet end
 
+visitnode(t::PathSet, node, level) = visitnode(t, node)
+
 ## AllPaths
 ##────────────────────────────────────────────────────────────────────────────#
     # Goes through every permutation of edges
@@ -43,6 +45,12 @@ function tracknode!(t::NoCycles, node, level)
     push!(t.latest, node)
 end
 visitnode(t::NoCycles, node) = node ∉ t.parents
+function visitnode(t::NoCycles, node, level)
+    while length(t.latest) > level
+        delete!(t.parents, pop!(t.latest))
+    end
+    return visitnode(t, node)
+end
 visitchild(t::NoCycles, node, child) = true
 
 ## OncePerEdge

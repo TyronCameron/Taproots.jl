@@ -320,7 +320,7 @@ function walk!(walker::Walk{Preorder}, sink = nothing)
     while !isempty(stack)
         sprout = take!(stack)
         node = nodeof(sprout)
-        if !visitnode(pathset, node) continue end
+        if !visitnode(pathset, node, levelof(sprout)) continue end
         if shouldyield(shoots, node)
             @yield takeshoot(shoots, sprout)
         end
@@ -346,7 +346,7 @@ function walk!(walker::Walk{Postorder}, sink = nothing)
             end
         else
             node = nodeof(sprout)
-            if !visitnode(pathset, node) continue end
+            if !visitnode(pathset, node, levelof(sprout)) continue end
             put!(stack, sprout, true)
             for (i, child) in enumerate(children(node))
                 if !connector(node, child) || !visitchild(pathset, node, child) continue end
