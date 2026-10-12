@@ -1,0 +1,1 @@
+preorder_simple_small_tree_with_tracking(tree) = preorder(tree) |> collect

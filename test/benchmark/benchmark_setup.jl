@@ -9,6 +9,7 @@ using JET
 implementations::Tuple = (:naive, :taproots)
 situations::Tuple = (
     :preorder_simple_small_tree,
+    :preorder_simple_small_tree_with_tracking,
     :postorder_simple_small_tree,
     :topdown_simple_small_tree,
     :bottomup_simple_small_tree,
