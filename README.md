@@ -16,11 +16,17 @@ Welcome to `Taproots.jl`, the library made for recursing through nested data.
 
 I made this library for my own use, and so just be aware that future modification and dev is very likely. 
 
-Inspired by `AbstractTrees.jl`, and adding on the ability to track previous nodes, this library gives you iteration capabilities to visit your data structures completely. 
+Inspired by `AbstractTrees.jl`, and adding on the ability to track previous nodes, this library gives you iteration capabilities to visit nodes in your DAGs. 
+
+This package has the following benefits over other packages: 
+
+- It is ergonomic to iterate. It doesn't require a graph object or adjacency matrix. Any struct will do. You can define `children` for your struct in general (or indeed for one traversal) without first laying out your data in an adjacency matrix. 
+- It has powerful tracking, allowing you to iterate in multiple ways (`preorder`, `postorder`, `topdown`, `bottomup`), and traverse the graph `OncePerNode` or `OncePerEdge` or visiting `AllPaths` or all paths excluding cycles (`NoCycles`). 
+- The iterators it provides are fully lazy (except for `bottomup` which frontloads some of the work).
+- It can iterate infinitely even at depths which would otherwise stack overflow. 
+- It is reasonably fast. Allocation is unavoidable in this package (due to tracking nodes), but it is minimised. Type inference is prioritised at each step. Benchmarks suggest it is a similar speed to writing out a quick-and-easy recursion. 
 
 Check out the [docs](https://tyroncameron.github.io/Taproots.jl/dev/) for more info. 
-
-Here's a quick tldr with a few examples.
 
 ## Example: I have my own data, how do I traverse it?
 
@@ -50,7 +56,9 @@ for node in postorder(deeply_nested_terniary_tree)
 end 
 ```
 
-Get access to modification functionality by optionally implementing `Taproots.data`, `Taproots.setchildren!`, `Taproots.setdata!`. It's worth it! 
+That will work even if `deeply_nested_terniary_tree` is deeper than recursion allows, or if `deeply_nested_terniary_tree` has cycles in it. 
+
+Get access to additional modification functionality by optionally implementing `Taproots.data`, `Taproots.setchildren!`, `Taproots.setdata!`. 
 
 ## Example: change all the data in a dict
 
@@ -93,25 +101,4 @@ nums = 1:100
 eval(expr)
 ```
 
-Did you see what that does? It replaced every `map` function call to instead call `filter`. 
-
-## Bonus: Get free visualisation set up for your types
-
-```julia
-@sprout TerniaryTree # set up @bloom for this type
-@bloom deeply_nested_terniary_tree
-```
-
-```julia
-using Plots
-plotdag(deeply_nested_terniary_tree) 
-plottree(deeply_nested_terniary_tree) 
-```
-
-## Bonus: Index into nested data in a nice way!
-
-```julia
-getatkeys(dict, (:a, :b); default = "Nothing found") == "nonsense_data"
-```
-
-For this and more, check out the [docs](https://tyroncameron.github.io/Taproots.jl/dev/)! 
+That replaced every `map` function call to instead call `filter`. 
