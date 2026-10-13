@@ -366,7 +366,7 @@ function walk!(walker::Walk{Topdown}, sink = nothing)
     while !isempty(queue)
         sprout = take!(queue)
         node = nodeof(sprout)
-        if !visitnode(pathset, node) continue end
+        if !visitnode(pathset, node, levelof(sprout)) continue end
         if shouldyield(shoots, node)
             @yield takeshoot(shoots, sprout)
         end
@@ -393,7 +393,7 @@ function walk!(walker::Walk{Bottomup}, sink = nothing)
             if frontier.pending[parent] == 0 put!(frontier, parent) end
         end
         node = nodeof(sprout)
-        should_visit_node = visitnode(pathset, node)
+        should_visit_node = visitnode(pathset, node, levelof(sprout))
         tracknode!(pathset, node, levelof(sprout))
         if !should_visit_node continue end
         if shouldyield(shoots, node)
