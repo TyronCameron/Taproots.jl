@@ -157,6 +157,17 @@ end
 	end
 end
 
+@testset "bottomup and leafbatches visit shared nodes once, not once per path" begin
+	layer = [Taproot(i, Taproot[]) for i in 1:2]
+	for _ in 1:40 # 2^40 paths from the root to each leaf
+		layer = [Taproot(i, copy(layer)) for i in 1:2]
+	end
+	lattice = Taproot("Root", layer)
+	@test length(collect(bottomup(lattice))) == 83
+	@test map(length, collect(leafbatches(lattice))) == [fill(2, 41); 1]
+	@test map(Set, collect(leafbatches(lattice))) == map(Set, naive_leafbatches(lattice))
+end
+
 @testset "Traversal has nice properties" begin
 	
 	@testset "No stackoverflow" begin

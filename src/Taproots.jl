@@ -19,8 +19,8 @@ include(joinpath(@__DIR__, "AbstractAPI.jl"))
 include(joinpath(@__DIR__, "BinaryNodeProperties.jl"))
 
 include(joinpath(@__DIR__, "Shoots.jl"))
-include(joinpath(@__DIR__, "Frontiers.jl"))
 include(joinpath(@__DIR__, "Pathsets.jl"))
+include(joinpath(@__DIR__, "Frontiers.jl"))
 
 include(joinpath(@__DIR__, "PluckGraft.jl"))
 

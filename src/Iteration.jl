@@ -334,7 +334,7 @@ end
 function buildwalk(walk_order, shoots, children, connector, pathset, root; sizeguess = 256)
     N = childtypes(root)
     S = sprouttype(shoots, N)
-    frontier = initfrontier(walk_order, S, shoots, children, connector, root, sizeguess)
+    frontier = initfrontier(walk_order, S, shoots, children, connector, pathset, root, sizeguess)
     return Walk{walk_order, walkeltype(walk_order, yieldtype(shoots, S))}(frontier, initpathset(pathset, N; sizeguess), shoots, children, connector, initsprout(S, root))
 end
 
@@ -342,12 +342,13 @@ walkeltype(walk_order, ::Type{T}) where T = T
 walkeltype(::Type{Leafbatches}, ::Type{T}) where T = Vector{T}
 
 firstsprout(::Type{S}, shoots, root, sizeguess = 8) where S = sizehint!(S[initsprout(S, root)], sizeguess)
-initfrontier(::Type{Preorder}, ::Type{S}, shoots, children, connector, root, sizeguess = 8) where S = StackFrontier{S}(firstsprout(S, shoots, root))
-initfrontier(::Type{Postorder}, ::Type{S}, shoots, children, connector, root, sizeguess = 8) where S = PostorderStackFrontier{S}(firstsprout(S, shoots, root), sizehint!([false], sizeguess))
-initfrontier(::Type{Topdown}, ::Type{S}, shoots, children, connector, root, sizeguess = 8) where S = QueueFrontier{S}(firstsprout(S, shoots, root), 1)
-function initfrontier(::Type{Bottomup}, ::Type{S}, shoots, children, connector, root, sizeguess = 8) where S
-    premap = buildwalk(Preorder, WholeSprout(shoots), children, connector, NoCycles, root; sizeguess)
-    return BottomupFrontier(collect(premap), children, connector)
+initfrontier(::Type{Preorder}, ::Type{S}, shoots, children, connector, pathset, root, sizeguess = 8) where S = StackFrontier{S}(firstsprout(S, shoots, root))
+initfrontier(::Type{Postorder}, ::Type{S}, shoots, children, connector, pathset, root, sizeguess = 8) where S = PostorderStackFrontier{S}(firstsprout(S, shoots, root), sizehint!([false], sizeguess))
+initfrontier(::Type{Topdown}, ::Type{S}, shoots, children, connector, pathset, root, sizeguess = 8) where S = QueueFrontier{S}(firstsprout(S, shoots, root), 1)
+function initfrontier(::Type{Bottomup}, ::Type{S}, shoots, children, connector, ::Type{P}, root, sizeguess = 8) where {S, P}
+    mappath = P <: OncePerNode ? OncePerNode : NoCycles # map whole nodes when we can: far fewer sprouts than paths in a DAG
+    premap = buildwalk(Preorder, WholeSprout(shoots), children, connector, mappath, root; sizeguess)
+    return BottomupFrontier(collect(premap), children, connector, mappath)
 end
 initfrontier(::Type{Leafbatches}, args...) = initfrontier(Bottomup, args...)
 
