@@ -16,6 +16,10 @@ situations::Tuple = (
     :simple_big_tree,
     :cycle,
     :expensive_tree,
+    :leafbatches_simple_small_tree,
+    :leafbatches_small_chain,
+    :leafbatches_expensive_tree,
+    :leafbatches_lattice,
 )
 
 module InitFunctions 

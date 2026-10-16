@@ -21,7 +21,7 @@ Inspired by `AbstractTrees.jl`, and adding on the ability to track previous node
 This package has the following benefits over other packages: 
 
 - It is ergonomic to iterate. It doesn't require a graph object or adjacency matrix. Any struct will do. You can define `children` for your struct in general (or indeed for one traversal) without first laying out your data in an adjacency matrix. 
-- It has powerful tracking, allowing you to iterate in multiple ways (`preorder`, `postorder`, `topdown`, `bottomup`), and traverse the graph `OncePerNode` or `OncePerEdge` or visiting `AllPaths` or all paths excluding cycles (`NoCycles`). 
+- It has powerful tracking, allowing you to iterate in multiple ways (`preorder`, `postorder`, `topdown`, `bottomup`, or in parallelisable `leafbatches`), and traverse the graph `OncePerNode` or `OncePerEdge` or visiting `AllPaths` or all paths excluding cycles (`NoCycles`). 
 - The iterators it provides are fully lazy (except for `bottomup` which frontloads some of the work).
 - It can iterate infinitely even at depths which would otherwise stack overflow. 
 - It is reasonably fast. Allocation is unavoidable in this package (due to tracking nodes), but it is minimised. Type inference is prioritised at each step. Benchmarks suggest it is a similar speed to writing out a quick-and-easy recursion. 

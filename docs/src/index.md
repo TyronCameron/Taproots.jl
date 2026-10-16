@@ -91,6 +91,7 @@ bottomup(my_data) # a level-order, bottom-up, breadth-first search (a valid topo
 
 leaves(my_data) # only look at the data that doesn't have children
 branches(my_data) # only look at the data that does have children
+leafbatches(my_data) # vectors of nodes: the leaves, then the nodes whose children are all in earlier batches, and so on (handy for parallel processing)
 
 traces(my_data) # get all traces (trace = a simple vector of indices in order) so that you can index into a particular child later
 tracepairs(my_data) # get all traces along with nodes themselves
@@ -121,6 +122,7 @@ ischild(potential_child, parent) # true if the potential child is recursively a 
 isparent(potential_parent, child) # true if the potential parent is recursively a parent of the child. 
 isleaf(node) # true if the node has no children
 isbranch(node) # true if the node has any children
+isleaf(node; connector) # true if the node has no children that `connector(node, child)` lets through (`isbranch` too)
 ```
 
 There are handy functions to help you find nodes as well! 

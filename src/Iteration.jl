@@ -128,21 +128,51 @@ collect(bottomup(x)) <: Vector
 Base.@constprop :aggressive bottomup(args...; kwargs...) = standardised_iterate_taproot(Bottomup, args...; kwargs...)
 
 """
-    leaves([children,] taproot; kwargs...)
+    leafbatches([children], taproots...; kwargs...)
 
-Shorthand for `Iterators.filter(isleaf, preorder([children,] taproot; kwargs...))`. 
-Only works for `eltype = Node`. 
+Args:
+
+- `children` is an optional function taking in a taproot and returning an iterator of children taproots. If supplied, this iterator will not revert to using the `Taproots.children` function. 
+- `taproots` are the root nodes we'd like to iterate through 
+
+Supports `kwargs` include:
+
+- `connector`, this is a function which takes in the current `node` and a `child` node and if it resolves to `true`, you will visit that child node
+- `pathset::Type{<:PathSet}`, this is a selection of how many times to visit each node / edge. Options include: `AllPaths`, `NoCycles`, `OncePerNode`, `OncePerEdge`
+- `eltype::Union{Type{<:Shoot}, Tuple}`, this determines what each batch holds. Options include: `Node`, `Level`, `Trace`, or combinations such as `(Node, Level, Trace)`
+- `sizeguess::Int = 256`, a guess of how many nodes the taproot holds, used to preallocate internal tracking structures
+
+This creates an eager iterator of batches (vectors) of nodes. The first batch is `leaves(taproots...)`.
+Each later batch holds the nodes whose connected children all sit in earlier batches: the leaves you would get if you plucked off every batch before it.
+Flattening the batches gives exactly `bottomup`, so a node lands in the batch numbered by its height above the leaves.
+
+Nothing within a batch depends on anything else in that batch, so each batch can be processed in parallel.
+Like `bottomup`, this abandons cycles (and everything above them), and the `connector` is evaluated once per edge, up front.
+
+# Usage
+```julia
+for batch in leafbatches(x; connector = (node, child) -> !isdone(child))
+    Threads.@threads for node in batch
+        process!(node)
+    end
+end
+```
+"""
+Base.@constprop :aggressive leafbatches(args...; kwargs...) = standardised_iterate_taproot(Leafbatches, args...; kwargs...)
 
 """
-Base.@constprop :aggressive leaves(args...; kwargs...) = Iterators.filter(isleaf, preorder(args...; kwargs...))
+    leaves([children,] taproot; kwargs...)
+
+Like `preorder([children,] taproot; kwargs...)`, but only yields the nodes for which `isleaf([children,] node; connector)` holds.
+"""
+Base.@constprop :aggressive leaves(args...; kwargs...) = filterwalk(isleaf, args...; kwargs...)
 
 """
     branches([children,] taproot; kwargs...)
 
-Shorthand for `Iterators.filter(isbranch, preorder([children,] taproot; kwargs...))`.
-Only works for `eltype = Node`.
+Like `preorder([children,] taproot; kwargs...)`, but only yields the nodes for which `isbranch([children,] node; connector)` holds.
 """
-Base.@constprop :aggressive branches(args...; kwargs...) = Iterators.filter(isbranch, preorder(args...; kwargs...))
+Base.@constprop :aggressive branches(args...; kwargs...) = filterwalk(isbranch, args...; kwargs...)
 
 """
     traces([children,] taproot; kwargs...)
@@ -188,6 +218,14 @@ Base.@constprop :aggressive function standardised_iterate_taproot( # Allow passi
         eltype = eltype,
         sizeguess = sizeguess
     )
+end
+
+# A preorder walk keeping only the nodes for which `keep(children, node; connector)` holds.
+# The node rides along with the requested shoots, so any `eltype` works.
+Base.@constprop :aggressive filterwalk(keep, taproot, taproots...; kwargs...) = filterwalk(keep, children, taproot, taproots...; kwargs...)
+Base.@constprop :aggressive function filterwalk(keep, children::Union{Function, Type}, taproot, taproots...; connector = alwaysconnect, eltype = Node, kwargs...)
+    walk = preorder(children, taproot, taproots...; connector, eltype = (Node, eltype), kwargs...)
+    return (shoot for (node, shoot) in walk if keep(children, node; connector))
 end
 
 # For a set of Taproots, I think just create a single parent which has all the listed taproots as children
@@ -297,8 +335,11 @@ function buildwalk(walk_order, shoots, children, connector, pathset, root; sizeg
     N = childtypes(root)
     S = sprouttype(shoots, N)
     frontier = initfrontier(walk_order, S, shoots, children, connector, root, sizeguess)
-    return Walk{walk_order, yieldtype(shoots, S)}(frontier, initpathset(pathset, N; sizeguess), shoots, children, connector, initsprout(S, root))
+    return Walk{walk_order, walkeltype(walk_order, yieldtype(shoots, S))}(frontier, initpathset(pathset, N; sizeguess), shoots, children, connector, initsprout(S, root))
 end
+
+walkeltype(walk_order, ::Type{T}) where T = T
+walkeltype(::Type{Leafbatches}, ::Type{T}) where T = Vector{T}
 
 firstsprout(::Type{S}, shoots, root, sizeguess = 8) where S = sizehint!(S[initsprout(S, root)], sizeguess)
 initfrontier(::Type{Preorder}, ::Type{S}, shoots, children, connector, root, sizeguess = 8) where S = StackFrontier{S}(firstsprout(S, shoots, root))
@@ -308,6 +349,7 @@ function initfrontier(::Type{Bottomup}, ::Type{S}, shoots, children, connector, 
     premap = buildwalk(Preorder, WholeSprout(shoots), children, connector, NoCycles, root; sizeguess)
     return BottomupFrontier(collect(premap), children, connector)
 end
+initfrontier(::Type{Leafbatches}, args...) = initfrontier(Bottomup, args...)
 
 ## Walk in different orders
 ##────────────────────────────────────────────────────────────────────────────#
@@ -385,19 +427,36 @@ function walk!(walker::Walk{Bottomup}, sink = nothing)
     frontier, pathset, shoots, children, connector = walkparts(walker)
     @resume walker
     while !isempty(frontier)
-        k = take!(frontier) # only taken once all of this sprout's children were taken
-        sprout = frontier.states[k]
-        parent = frontier.parentidx[k]
-        if parent != 0 # this sprout is done, so its parent is one child closer to eligible
-            frontier.pending[parent] -= 1
-            if frontier.pending[parent] == 0 put!(frontier, parent) end
-        end
+        sprout = take!(frontier) # only taken once all of this sprout's children were taken
         node = nodeof(sprout)
         should_visit_node = visitnode(pathset, node, levelof(sprout))
         tracknode!(pathset, node, levelof(sprout))
         if !should_visit_node continue end
         if shouldyield(shoots, node)
             @yield takeshoot(shoots, sprout)
+        end
+    end
+    return finish!(walker)
+end
+
+### Leafbatches
+    # The bottomup queue already runs in batches: every sprout released while taking
+    # one batch queues up behind it. So a batch is whatever was ready when it began.
+
+function walk!(walker::Walk{Leafbatches, Vector{T}}, sink = nothing) where T
+    frontier, pathset, shoots, children, connector = walkparts(walker)
+    @resume walker
+    while !isempty(frontier)
+        batch = T[]
+        for _ in 1:readycount(frontier)
+            sprout = take!(frontier)
+            node = nodeof(sprout)
+            should_visit_node = visitnode(pathset, node, levelof(sprout))
+            tracknode!(pathset, node, levelof(sprout))
+            if should_visit_node && shouldyield(shoots, node) push!(batch, takeshoot(shoots, sprout)) end
+        end
+        if !isempty(batch) # only the synthetic multi-root parent makes a batch of nothing
+            @yield batch
         end
     end
     return finish!(walker)

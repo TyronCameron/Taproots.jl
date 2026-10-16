@@ -7,3 +7,6 @@ postorder_simple_small_tree() = simple_small_tree()
 topdown_simple_small_tree() = simple_small_tree()
 bottomup_simple_small_tree() = simple_small_tree()
 
+
+leafbatches_simple_small_tree() = simple_small_tree()
+leafbatches_small_chain() = create_chain(1_000)

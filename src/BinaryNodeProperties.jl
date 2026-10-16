@@ -27,17 +27,19 @@ Time complexity of this is ~linear in the number of edges in your DAG underneath
 isparent(potential_parent, child) = ischild(child, potential_parent)
 
 """
-    isleaf(node)::Bool
+    isleaf([children,] node; connector = (node, child) -> true)::Bool
 
-Tells you whether this `node` is a leaf node (i.e. it has no children).
-
-"""
-isleaf(node) = isempty(children(node))
+Tells you whether this `node` is a leaf node (i.e. it has no children that `connector` connects to).
+Pass the same `children` and `connector` you iterate with and `isleaf` agrees with your iterator about which nodes are leaves.
 
 """
-    isbranch(node)::Bool
-
-Tells you whether this `node` is a branch node (i.e. it has children).
+isleaf(node; connector = alwaysconnect) = isleaf(children, node; connector)
+isleaf(children::Union{Function, Type}, node; connector = alwaysconnect) = !any(child -> connector(node, child), children(node))
 
 """
-isbranch(node) = !isleaf(node)
+    isbranch([children,] node; connector = (node, child) -> true)::Bool
+
+Tells you whether this `node` is a branch node (i.e. it has children that `connector` connects to).
+
+"""
+isbranch(args...; kwargs...) = !isleaf(args...; kwargs...)

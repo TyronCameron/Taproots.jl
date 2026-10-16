@@ -13,6 +13,8 @@
         collect(postorder(root; pathset = NoCycles))
         collect(topdown(root; pathset = OncePerEdge))
         collect(bottomup(root; pathset = OncePerNode))
+        collect(leafbatches(root))
+        collect(leaves(root))
         collect(preorder(root; eltype = (Trace, Node)))
         collect(tracepairs(root))
     end

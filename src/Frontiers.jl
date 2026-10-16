@@ -16,6 +16,7 @@ struct Preorder <: WalkOrder end
 struct Postorder <: WalkOrder end
 struct Topdown <: WalkOrder end
 struct Bottomup <: WalkOrder end
+struct Leafbatches <: WalkOrder end
 
 abstract type Frontier end
 
@@ -116,12 +117,18 @@ end
 
 put!(frontier::BottomupFrontier, k::Int) = push!(frontier.queue, k)
 
-function take!(frontier::BottomupFrontier) # returns the index; look up states/parentidx from it
+function take!(frontier::BottomupFrontier) # taking a sprout brings its parent one child closer to ready
     k = frontier.queue[frontier.currentidx]
     frontier.currentidx += 1
-    return k
+    parent = frontier.parentidx[k]
+    if parent != 0
+        frontier.pending[parent] -= 1
+        if frontier.pending[parent] == 0 put!(frontier, parent) end
+    end
+    return frontier.states[k]
 end
 
-peek(frontier::BottomupFrontier) = frontier.queue[frontier.currentidx]
+peek(frontier::BottomupFrontier) = frontier.states[frontier.queue[frontier.currentidx]]
+readycount(frontier::BottomupFrontier) = length(frontier.queue) - frontier.currentidx + 1
 
 Base.isempty(frontier::BottomupFrontier) = frontier.currentidx > length(frontier.queue)

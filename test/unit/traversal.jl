@@ -48,6 +48,37 @@ iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)
 		@test all(branches(collider) |> to_compare .== collider_branches_ans)
 	end
 
+	@testset "leaves and branches respect the connector" begin
+		no_right = (node, child) -> !(child isa MoreFlexiTaproot && child.data == "Go right")
+		@test leaves(collider; connector = no_right) |> to_compare == ["Loner", "Collider"]
+		@test branches(collider; connector = no_right) |> to_compare == ["The top", "Go left"]
+		stop_left = (node, child) -> node.data != "Go left"
+		@test leaves(collider; connector = stop_left) |> to_compare == ["Collider", "Go left"]
+		@test branches(collider; connector = stop_left) |> to_compare == ["The top", "Go right"]
+		@test leaves(node -> node isa MoreFlexiTaproot ? node.children[1:1] : (), collider) |> to_compare == ["Collider"]
+	end
+
+	@testset "leaves and branches take any eltype" begin
+		@test collect(leaves(collider; eltype = Trace)) == [(2, 1), (1, 2)]
+		@test collect(branches(collider; eltype = (Trace, Level))) == [((), 0), ((2,), 1), ((1,), 1)]
+	end
+
+	@testset "leafbatches" begin
+		batches = vec -> map(b -> to_compare(b), collect(vec))
+		@test batches(leafbatches(collider)) == [["Collider", "Loner"], ["Go right", "Go left"], ["The top"]]
+		@test batches(leafbatches(different_heights)) == [["B", "Leaf"], ["A"], ["Top"]]
+		@test batches(leafbatches(collider; pathset = AllPaths)) == [["Collider", "Loner", "Collider"], ["Go right", "Go left"], ["The top"]]
+		@test collect(leafbatches(collider; eltype = Trace)) == [[(2, 1), (1, 2)], [(2,), (1,)], [()]]
+		@test batches(leafbatches(collider.children...)) == [["Collider", "Loner"], ["Go right", "Go left"]]
+
+		done = Set([collider.children[1]])
+		@test batches(leafbatches(collider; connector = (node, child) -> child ∉ done)) == [["Collider"], ["Go right"], ["The top"]]
+
+		@test eltype(leafbatches(collider)) == Vector{Any}
+		@test collect(leafbatches(cycle)) == [[nothing]]
+		@test length(collect(leafbatches(deepdag))) == 20002 # the nothings, then one batch per level of the chain
+	end
+
 	@testset "traces" begin
 		collider_traces_ans = [(), (2,), (2, 1), (1,), (1, 2)]
 		@test all(traces(collider) |> to_compare .== collider_traces_ans)
@@ -102,6 +133,30 @@ end
 	end
 end
 
+# The algorithm leafbatches is defined by: repeatedly take the leaves, ignoring the ones already taken
+function naive_leafbatches(root; connector = (node, child) -> true, pathset = OncePerNode)
+	done = Set()
+	batches = []
+	while true
+		notdone = (node, child) -> connector(node, child) && child ∉ done
+		batch = [x for x in leaves(root; connector = notdone, pathset) if x ∉ done]
+		isempty(batch) && return batches
+		union!(done, batch)
+		push!(batches, batch)
+	end
+end
+
+@testset "leafbatches agrees with naive leafbatches and bottomup" begin
+	samebatch(a, b) = length(a) == length(b) && Set(a) == Set(b)
+	connectors = ((node, child) -> true, (node, child) -> !(child isa String), (node, child) -> child != final_collider)
+	for taproot in fast_examples, pathset in (OncePerNode, AllPaths), connector in connectors
+		ours = collect(leafbatches(taproot; pathset, connector))
+		theirs = naive_leafbatches(taproot; pathset, connector)
+		@test length(ours) == length(theirs) && all(samebatch.(ours, theirs))
+		@test reduce(vcat, ours; init = Any[]) == collect(bottomup(taproot; pathset, connector))
+	end
+end
+
 @testset "Traversal has nice properties" begin
 	
 	@testset "No stackoverflow" begin
@@ -120,6 +175,7 @@ end
 			end 
 			@test 0 <= value <= 100 # 0 allowed for bottomup where there are no leaves
 		end
+		@test length(collect(leafbatches(cycle; pathset = AllPaths))) <= 100
 	end
 
 	@testset "Can iterate infinitely through cycles if desired" begin
