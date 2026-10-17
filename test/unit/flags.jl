@@ -23,6 +23,10 @@
 		@test isleaf(MyLeafType(MyLeafType("some stuff here")))
 		@test !isleaf(Taproot("data", [Taproot("nothing", Taproot[])]))
 		@test isleaf(Taproot("data", Taproot[]))
+		@test isleaf(collider; connector = (node, child) -> false)
+		@test !isleaf(collider; connector = (node, child) -> child.data == "Go left")
+		@test isleaf(node -> (), collider)
+		@test !isleaf(node -> node.children, collider; connector = (node, child) -> true)
 	end
 
 	@testset "isbranch" begin
@@ -32,6 +36,9 @@
 		@test !isbranch(MyLeafType(MyLeafType("some stuff here")))
 		@test isbranch(Taproot("data", [Taproot("nothing", Taproot[])]))
 		@test !isbranch(Taproot("data", Taproot[]))
+		@test !isbranch(collider; connector = (node, child) -> false)
+		@test isbranch(collider; connector = (node, child) -> child.data == "Go left")
+		@test !isbranch(node -> (), collider)
 	end
 
 end

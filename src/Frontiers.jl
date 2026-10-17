@@ -16,6 +16,7 @@ struct Preorder <: WalkOrder end
 struct Postorder <: WalkOrder end
 struct Topdown <: WalkOrder end
 struct Bottomup <: WalkOrder end
+struct Leafbatches <: WalkOrder end
 
 abstract type Frontier end
 
@@ -72,56 +73,85 @@ Base.isempty(frontier::QueueFrontier) = frontier.currentidx > length(frontier.ne
 
 # Bottomup Frontier
 #─────────────────────────────────────────────────────────────────────────────
-    # Holds every sprout of the taproot in preorder (each sprout corresponds to
-    # one unique path from the root). The queue works purely on indices into
-    # that vector: `parentidx[k]` is the index of the sprout above sprout `k`
-    # (0 for the root), so stepping to a parent is O(1). `pending[k]` counts how
-    # many of sprout k's connected children have not yet been taken; a sprout
-    # enters the queue exactly once, when its count reaches zero (Kahn's
-    # algorithm). Children on cycle edges are pruned before ever reaching
-    # `states`, so their parents' counts never reach zero and cycles are
+    # Holds every sprout of the taproot in preorder. A sprout is either one unique
+    # path from the root, or (when walking OncePerNode) a whole node. The queue
+    # works purely on indices into that vector. Each sprout keeps a linked list of
+    # edges up to its parents: `firstparent[k]` is its first edge (0 for none),
+    # `edgeparent[e]` is where edge `e` leads and `nextedge[e]` is the next edge in
+    # the same list. `pending[k]` counts how many of sprout k's connected children
+    # have not yet been taken; a sprout enters the queue exactly once, when its
+    # count reaches zero (Kahn's algorithm). Cycles never reach zero, so they are
     # abandoned.
 
 mutable struct BottomupFrontier{S} <: Frontier
     states::Vector{S}
-    parentidx::Vector{Int}
     pending::Vector{Int}
+    firstparent::Vector{Int}
+    edgeparent::Vector{Int}
+    nextedge::Vector{Int}
     queue::Vector{Int}
     currentidx::Int
 end
 
-function BottomupFrontier(states::Vector{S}, children, connector) where S
+function BottomupFrontier(states::Vector{S}, children, connector, pathset) where S
     n = length(states)
-    parentidx = Vector{Int}(undef, n)
-    pending = Vector{Int}(undef, n)
-    ancestors = Int[] # preorder guarantees a sprout's parent is the latest sprout one level up
-    for (k, sprout) in enumerate(states)
+    frontier = BottomupFrontier{S}(states, zeros(Int, n), zeros(Int, n), sizehint!(Int[], n), sizehint!(Int[], n), sizehint!(Int[], n), 1)
+    linkparents!(frontier, pathset, children, connector)
+    for (k, count) in enumerate(frontier.pending)
+        if count == 0 put!(frontier, k) end
+    end
+    return frontier
+end
+
+function addedge!(frontier::BottomupFrontier, child::Int, parent::Int)
+    push!(frontier.edgeparent, parent)
+    push!(frontier.nextedge, frontier.firstparent[child])
+    frontier.firstparent[child] = length(frontier.edgeparent)
+end
+
+# Sprouts are paths: each has one parent, the latest sprout one level up (preorder guarantees it).
+# Children on cycle edges never became sprouts, but still count towards `pending`.
+function linkparents!(frontier::BottomupFrontier, ::Type{<:PathSet}, children, connector)
+    ancestors = Int[]
+    for (k, sprout) in enumerate(frontier.states)
         level = levelof(sprout)
         resize!(ancestors, level)
-        parentidx[k] = level == 0 ? 0 : ancestors[level]
+        if level > 0 addedge!(frontier, k, ancestors[level]) end
         push!(ancestors, k)
         node = nodeof(sprout)
-        connected = 0
+        frontier.pending[k] = count(child -> connector(node, child), children(node))
+    end
+end
+
+# Sprouts are whole nodes: link each one to every parent it has.
+function linkparents!(frontier::BottomupFrontier, ::Type{<:OncePerNode}, children, connector)
+    index = Dict(nodeof(sprout) => k for (k, sprout) in enumerate(frontier.states))
+    for (k, sprout) in enumerate(frontier.states)
+        node = nodeof(sprout)
         for child in children(node)
-            if connector(node, child) connected += 1 end
+            if !connector(node, child) continue end
+            addedge!(frontier, index[child], k)
+            frontier.pending[k] += 1
         end
-        pending[k] = connected
     end
-    queue = sizehint!(Int[], n)
-    for (k, count) in enumerate(pending)
-        if count == 0 push!(queue, k) end
-    end
-    return BottomupFrontier{S}(states, parentidx, pending, queue, 1)
 end
 
 put!(frontier::BottomupFrontier, k::Int) = push!(frontier.queue, k)
 
-function take!(frontier::BottomupFrontier) # returns the index; look up states/parentidx from it
+function take!(frontier::BottomupFrontier) # taking a sprout brings each of its parents one child closer to ready
     k = frontier.queue[frontier.currentidx]
     frontier.currentidx += 1
-    return k
+    edge = frontier.firstparent[k]
+    while edge != 0
+        parent = frontier.edgeparent[edge]
+        frontier.pending[parent] -= 1
+        if frontier.pending[parent] == 0 put!(frontier, parent) end
+        edge = frontier.nextedge[edge]
+    end
+    return frontier.states[k]
 end
 
-peek(frontier::BottomupFrontier) = frontier.queue[frontier.currentidx]
+peek(frontier::BottomupFrontier) = frontier.states[frontier.queue[frontier.currentidx]]
+readycount(frontier::BottomupFrontier) = length(frontier.queue) - frontier.currentidx + 1
 
 Base.isempty(frontier::BottomupFrontier) = frontier.currentidx > length(frontier.queue)

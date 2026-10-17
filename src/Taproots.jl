@@ -7,7 +7,7 @@ export Taproot, tapin, tapout,
     eachfield,
     children, childtype, childtypes, data, setchildren!, setdata!,
     ischild, isparent, isleaf, isbranch,
-    preorder, postorder, topdown, bottomup, leaves, branches, traces, tracepairs,
+    preorder, postorder, topdown, bottomup, leafbatches, leaves, branches, traces, tracepairs,
     AllPaths, NoCycles, OncePerNode, OncePerEdge,
     Trace, Level, Node,
     adjacencymatrix,
@@ -19,8 +19,8 @@ include(joinpath(@__DIR__, "AbstractAPI.jl"))
 include(joinpath(@__DIR__, "BinaryNodeProperties.jl"))
 
 include(joinpath(@__DIR__, "Shoots.jl"))
-include(joinpath(@__DIR__, "Frontiers.jl"))
 include(joinpath(@__DIR__, "Pathsets.jl"))
+include(joinpath(@__DIR__, "Frontiers.jl"))
 
 include(joinpath(@__DIR__, "PluckGraft.jl"))
 
