@@ -4,14 +4,18 @@
     # This file contains adjacency matrix calculations
     # TODO: allow these to take multiple taproots at a time
 
+# Shared nodes are repeated once per path, so the result is always a tree (cycles are cut)
+function treewalk(t)
+    walk = collect(topdown(t; pathset = NoCycles, eltype = (Node, Trace)))
+    return first.(walk), last.(walk)
+end
+
 function treeadjacency(t)
-    top = topdown(t) |> collect
-    adj = convert(Array{Int}, zeros(length(top), length(top)))
-    start = 2
-    for (i,x) in enumerate(top)
-        stop = start + length(children(x)) - 1
-        if start < stop adj[i, start:stop] .= 1 end
-        start = stop + 1
+    nodes, traces = treewalk(t)
+    index = Dict(trace => i for (i, trace) in enumerate(traces))
+    adj = zeros(Int, length(nodes), length(nodes))
+    for (i, trace) in enumerate(traces)
+        isempty(trace) || (adj[index[trace[begin:(end - 1)]], i] = 1)
     end
     return adj
 end

@@ -14,6 +14,12 @@ abstract type PathSet end
 ##────────────────────────────────────────────────────────────────────────────#
     # Goes through every permutation of edges
 
+"""
+    AllPaths
+
+A `pathset` that follows every path, so a node reached by several paths is visited once per path.
+The fastest option, since nothing is tracked. Never finishes on a cyclic taproot.
+"""
 struct AllPaths <: PathSet end
 
 initpathset(::Type{AllPaths}; sizeguess::Int = 256) = AllPaths()
@@ -26,6 +32,12 @@ visitchild(::AllPaths, node, child) = true
 ##────────────────────────────────────────────────────────────────────────────#
     # Stops when it sees cycles
 
+"""
+    NoCycles
+
+A `pathset` that follows every path but never revisits a node's own ancestors, so cycles are cut.
+Same as `AllPaths` on an acyclic taproot.
+"""
 mutable struct NoCycles{T} <: PathSet
     parents::Set{T}
     latest::Vector{T}
@@ -51,6 +63,11 @@ visitchild(t::NoCycles, node, child) = true
 ##────────────────────────────────────────────────────────────────────────────#
     # Stops when it sees the same combo of node and parent
 
+"""
+    OncePerEdge
+
+A `pathset` that crosses each parent-child edge once, so a node is visited once per parent.
+"""
 struct OncePerEdge{T} <: PathSet
     visited::Set{T}
 end
@@ -67,6 +84,11 @@ visitchild(t::OncePerEdge, node, child) = node ∉ t.visited
 ##────────────────────────────────────────────────────────────────────────────#
     # Stops when it sees the same node it's already visited
 
+"""
+    OncePerNode
+
+The default `pathset`: visits each node exactly once, however many paths lead to it.
+"""
 struct OncePerNode{T} <: PathSet
     visited::Set{T}
 end

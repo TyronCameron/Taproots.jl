@@ -1,19 +1,56 @@
-# Taproots API
+# API
+
+## Core
+
+### Interface
 
 ```@docs
-Taproots
+children
+childtype
+childtypes
+data
+setchildren!
+setdata!
 ```
 
-## Module Index
+### Flags
 
-```@index
-Modules = [Taproots]
-Order   = [:constant, :type, :function, :macro]
+```@docs
+ischild
+isparent
+isleaf
+isbranch
 ```
 
-## API
+### Walks
 
-```@autodocs
-Modules = [Taproots]
-Order   = [:constant, :type, :function, :macro]
+```@docs
+preorder
+postorder
+topdown
+bottomup
+leafbatches
+leaves
+branches
+traces
+tracepairs
 ```
+
+### Pathsets
+
+```@docs
+AllPaths
+NoCycles
+OncePerNode
+OncePerEdge
+```
+
+### Element types
+
+```@docs
+Node
+Level
+Trace
+```
+
+Everything else is documented at the bottom of [Extras](extras.md#Reference).
