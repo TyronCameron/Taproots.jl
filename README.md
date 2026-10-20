@@ -1,5 +1,4 @@
 
-
 <p align="center">
   <img src="docs/src/assets/taproots.png" width="150" />
 </p>
@@ -12,93 +11,70 @@
 [![Docs workflow Status](https://github.com/TyronCameron/Taproots.jl/actions/workflows/doc.yml/badge.svg)](https://github.com/TyronCameron/Taproots.jl/actions/workflows/doc.yml)
 [![Aqua QA](https://juliatesting.github.io/Aqua.jl/dev/assets/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
-Welcome to `Taproots.jl`, the library made for recursing through nested data. 
+Traverse nested structs and data (including your own custom ones) in easy peasy ways. No graph object, no adjacency matrix, no hand-rolled recursion: tell Taproots how to find a node's children and start walking.
 
-I made this library for my own use, and so just be aware that future modification and dev is very likely. 
+Inspired by `AbstractTrees.jl`, with node tracking on top, so shared children and cycles are handled for you. Walks are lazy, won't stack overflow on deep data, and run about as fast as a quick-and-easy recursion.
 
-Inspired by `AbstractTrees.jl`, and adding on the ability to track previous nodes, this library gives you iteration capabilities to visit nodes in your DAGs. 
+Many things are taproots: file and folder structures, nested JSON/YAML/`Dict`s, `Expr`s, or a response variable with all its causally-related covariates.
 
-This package has the following benefits over other packages: 
+## Installation
 
-- It is ergonomic to iterate. It doesn't require a graph object or adjacency matrix. Any struct will do. You can define `children` for your struct in general (or indeed for one traversal) without first laying out your data in an adjacency matrix. 
-- It has powerful tracking, allowing you to iterate in multiple ways (`preorder`, `postorder`, `topdown`, `bottomup`, or in parallelisable `leafbatches`), and traverse the graph `OncePerNode` or `OncePerEdge` or visiting `AllPaths` or all paths excluding cycles (`NoCycles`). 
-- The iterators it provides are fully lazy (except for `bottomup` which frontloads some of the work).
-- It can iterate infinitely even at depths which would otherwise stack overflow. 
-- It is reasonably fast. Allocation is unavoidable in this package (due to tracking nodes), but it is minimised. Type inference is prioritised at each step. Benchmarks suggest it is a similar speed to writing out a quick-and-easy recursion. 
+In the Julia REPL, type `]` and then `add Taproots`.
 
-Check out the [docs](https://tyroncameron.github.io/Taproots.jl/dev/) for more info. 
+## How to use
 
-## Example: I have my own data, how do I traverse it?
-
-Let's say you defined your own type. 
+Tell Taproots how to find your struct's children:
 
 ```julia
-struct TerniaryTree
-	node_name::String
-	left_option::Union{TerniaryTree, Nothing}
-	middle_option::Union{TerniaryTree, Nothing}
-	right_option::Union{TerniaryTree, Nothing}
-end 
-Base.show(io::IO, node::TerniaryTree) = print(io, node.node_name)
+using Taproots
+
+mutable struct MyType
+	some_data
+	children
+end
+
+Taproots.children(x::MyType) = x.children
+Base.show(io::IO, x::MyType) = print(io, x.some_data)
 ```
 
-Get access to all the traversal functionality in this package very easily!
+That's it. Let's build a small DAG, where `F`, `G` and `H` each have more than one parent:
 
 ```julia
-Taproots.children(node::TerniaryTree) = (node.left_option, node.middle_option, node.right_option)
+H = MyType("H", []); E = MyType("E", []); I = MyType("I", [])
+F = MyType("F", [H]); G = MyType("G", [H, I])
+B = MyType("B", [E, F]); C = MyType("C", [F, G]); D = MyType("D", [G])
+A = MyType("A", [B, C, D])
 ```
 
-Now we can traverse the `TerniaryTree`
+And walk it:
 
 ```julia
-for node in postorder(deeply_nested_terniary_tree) 
-	println(node)
-end 
+preorder(A)     # A D G I H C F B E   (parents before children)
+postorder(A)    # I H G D F C E B A   (children before parents)
+topdown(A)      # A B C D E F G H I   (level by level)
+bottomup(A)     # I H E F G B C D A   (a topological sort)
+leaves(A)       # I H E
+leafbatches(A)  # [I, H, E], [F, G], [B, C, D], [A]   (parallelisable batches)
 ```
 
-That will work even if `deeply_nested_terniary_tree` is deeper than recursion allows, or if `deeply_nested_terniary_tree` has cycles in it. 
+<p align="center">
+  <img src="docs/src/assets/depthfirst.gif" alt="preorder and postorder walking the example DAG one node at a time" width="600" />
+</p>
 
-Get access to additional modification functionality by optionally implementing `Taproots.data`, `Taproots.setchildren!`, `Taproots.setdata!`. 
-
-## Example: change all the data in a dict
-
-Let's say we've got a nested `Dict`, and we want to change all the text in the edge values to uppercase. 
+Every walk is a lazy iterator, so `for`, `map`, `Iterators.filter`, `first` and `collect` all just work. Each node is visited once by default; ask for `pathset = OncePerEdge`, `NoCycles` or `AllPaths` if you want more. Need the depth or the path to each node too? Pass `eltype = (Node, Level)` or `eltype = Trace`.
 
 ```julia
-dict = Dict(
-	:a => Dict(
-		:b => "nonsense_data",
-		:c => "more_data",
-	),
-	:d => "final_data"
-)
-leafmap(uppercase, dict)
+for (node, level) in preorder(A; eltype = (Node, Level))
+	println("  "^level, node)
+end
 ```
 
-This gives us something that looks like this: 
-
-```julia 
-Dict(
-	:a => Dict(
-		:b => "NONSENSE_DATA",
-		:c => "MORE_DATA",
-	),
-	:d => "FINAL_DATA"
-)
-```
-
-## Example: want to replace a function call in a meta expression 
-
-Let's say we've got some code, and we want to replace every single reference to `map` with `filter`. 
-
-We can do something like this:
+No interface? Pass a `children` function on the spot:
 
 ```julia
-expr = :(append!(map(x -> sqrt(x) == floor(sqrt(x)), nums), map(x -> x^(1/3) == floor(x^(1/3)), nums)) |> unique!)
-leafmap!(x -> x == :map ? :filter : x, expr)
-
-nums = 1:100
-eval(expr)
+preorder(n -> reverse(n.children), A)  # A B E F H C G I D
 ```
 
-That replaced every `map` function call to instead call `filter`. 
+Check out the [docs](https://tyroncameron.github.io/Taproots.jl/dev/) for the rest: connectors, modifying taproots in place, searching, built-in taproots and visualisation.
+
+*Heads up: I made this library for my own use, so expect it to keep growing.*
