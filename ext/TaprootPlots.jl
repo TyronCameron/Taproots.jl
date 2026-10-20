@@ -14,6 +14,8 @@ plottree(args...; kwargs...) = Plots.plot(PlotTree(args); kwargs...)
 plottree!(args...; kwargs...) = Plots.plot!(PlotTree(args); kwargs...)
 plotdag(args...; kwargs...) = Plots.plot(PlotDag(args); kwargs...)
 plotdag!(args...; kwargs...) = Plots.plot!(PlotDag(args); kwargs...)
+plottree!(p::Plots.AbstractPlot, args...; kwargs...) = Plots.plot!(p, PlotTree(args); kwargs...)
+plotdag!(p::Plots.AbstractPlot, args...; kwargs...) = Plots.plot!(p, PlotDag(args); kwargs...)
 
 # Each node once, numbered in topdown order, with an edge from every parent to each child
 function dagparts(roots)
