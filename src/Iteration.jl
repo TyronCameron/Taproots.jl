@@ -446,6 +446,7 @@ end
 
 function walk!(walker::Walk{Leafbatches, Vector{T}}, sink = nothing) where T
     frontier, pathset, shoots, children, connector = walkparts(walker)
+    sprout = walker.sprout # a batch is never empty when it is yielded, but keep `sprout` defined for `@yield` regardless
     @resume walker
     while !isempty(frontier)
         batch = T[]

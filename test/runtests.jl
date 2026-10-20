@@ -13,5 +13,6 @@ include(joinpath(@__DIR__, "unit", "flags.jl"))
 include(joinpath(@__DIR__, "unit", "indexing.jl"))
 include(joinpath(@__DIR__, "unit", "adjacency.jl"))
 include(joinpath(@__DIR__, "unit", "modification.jl"))
+include(joinpath(@__DIR__, "unit", "lint.jl"))
 
 Aqua.test_all(Taproots)

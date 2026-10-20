@@ -2,7 +2,7 @@
 Taproots is a library for traversing nested data structures.
 """
 module Taproots
-using PrecompileTools
+using PrecompileTools: @setup_workload, @compile_workload
 export Taproot, tapin, tapout,
     eachfield,
     children, childtype, childtypes, data, setchildren!, setdata!,
@@ -14,21 +14,21 @@ export Taproot, tapin, tapout,
     tapmap!, tapmap, tapmapif!, tapmapif, leafmap!, leafmap, branchmap!, branchmap, prune!, prune, leafprune!, leafprune, branchprune!, branchprune,
     findtrace, findtraces, pluck, graft!, getatkeys, setatkeys!, uproot
 
-include(joinpath(@__DIR__, "Taproot.jl"))
-include(joinpath(@__DIR__, "AbstractAPI.jl"))
-include(joinpath(@__DIR__, "BinaryNodeProperties.jl"))
+include("Taproot.jl")
+include("AbstractAPI.jl")
+include("BinaryNodeProperties.jl")
 
-include(joinpath(@__DIR__, "Shoots.jl"))
-include(joinpath(@__DIR__, "Pathsets.jl"))
-include(joinpath(@__DIR__, "Frontiers.jl"))
+include("Shoots.jl")
+include("Pathsets.jl")
+include("Frontiers.jl")
 
-include(joinpath(@__DIR__, "PluckGraft.jl"))
+include("PluckGraft.jl")
 
-include(joinpath(@__DIR__, "Iteration.jl"))
-include(joinpath(@__DIR__, "Adjacency.jl"))
-include(joinpath(@__DIR__, "Plotting.jl"))
-include(joinpath(@__DIR__, "Functionals.jl"))
+include("Iteration.jl")
+include("Adjacency.jl")
+include("Plotting.jl")
+include("Functionals.jl")
 
-include(joinpath(@__DIR__, "Precompile.jl"))
+include("Precompile.jl")
 
 end  # module Taproots

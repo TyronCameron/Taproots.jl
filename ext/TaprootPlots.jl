@@ -1,5 +1,8 @@
 module TaprootPlots
-using Taproots, RecipesBase, GraphRecipes, Plots
+using Taproots: Taproots, topdown, bottomup
+using RecipesBase: @recipe
+using GraphRecipes: GraphRecipes
+using Plots: Plots
 import Taproots: plotdag, plotdag!, plottree, plottree!
 
 struct PlotTree
