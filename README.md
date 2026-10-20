@@ -61,12 +61,17 @@ leafbatches(A)  # [I, H, E], [F, G], [B, C, D], [A]   (parallelisable batches)
   <img src="docs/src/assets/depthfirst.gif" alt="preorder and postorder walking the example DAG one node at a time" width="600" />
 </p>
 
-Every walk is a lazy iterator, so `for`, `map`, `Iterators.filter`, `first` and `collect` all just work. Each node is visited once by default; ask for `pathset = OncePerEdge`, `NoCycles` or `AllPaths` if you want more. Need the depth or the path to each node too? Pass `eltype = (Node, Level)` or `eltype = Trace`.
+Every walk is a lazy iterator, so you can loop over it or call `map`, `Iterators.filter`, `first` or `collect` on it. Each node is visited once by default; ask for `pathset = OncePerEdge`, `NoCycles` or `AllPaths` if you want more. Need the path to each node, or its depth, too? Pass `eltype = (Trace, Level, Node)`:
 
 ```julia
-for (node, level) in preorder(A; eltype = (Node, Level))
-	println("  "^level, node)
+for (trace, level, node) in preorder(A; eltype = (Trace, Level, Node))
+	println("  "^level, node, "  ", trace)
 end
+# A  ()
+#   D  (3,)
+#     G  (3, 1)
+#       I  (3, 1, 2)
+# ...
 ```
 
 No interface? Pass a `children` function on the spot:
@@ -77,4 +82,4 @@ preorder(n -> reverse(n.children), A)  # A B E F H C G I D
 
 Check out the [docs](https://tyroncameron.github.io/Taproots.jl/dev/) for the rest: connectors, modifying taproots in place, searching, built-in taproots and visualisation.
 
-*Heads up: I made this library for my own use, so expect it to keep growing.*
+*Heads up: I made this library for my own use, so expect a few changes along the way.*
