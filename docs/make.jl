@@ -9,6 +9,7 @@ makedocs(
     modules = [Taproots],
     pages = [
         "Index" => "index.md",
+        "Extras" => "extras.md",
         "API" => "api.md"
     ]
 )

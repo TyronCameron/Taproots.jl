@@ -10,7 +10,7 @@ export Taproot, tapin, tapout,
     preorder, postorder, topdown, bottomup, leafbatches, leaves, branches, traces, tracepairs,
     AllPaths, NoCycles, OncePerNode, OncePerEdge,
     Trace, Level, Node,
-    adjacencymatrix,
+    adjacencymatrix, plotdag, plotdag!, plottree, plottree!,
     tapmap!, tapmap, tapmapif!, tapmapif, leafmap!, leafmap, branchmap!, branchmap, prune!, prune, leafprune!, leafprune, branchprune!, branchprune,
     findtrace, findtraces, pluck, graft!, getatkeys, setatkeys!, uproot
 
@@ -26,6 +26,7 @@ include(joinpath(@__DIR__, "PluckGraft.jl"))
 
 include(joinpath(@__DIR__, "Iteration.jl"))
 include(joinpath(@__DIR__, "Adjacency.jl"))
+include(joinpath(@__DIR__, "Plotting.jl"))
 include(joinpath(@__DIR__, "Functionals.jl"))
 
 include(joinpath(@__DIR__, "Precompile.jl"))
