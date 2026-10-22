@@ -3,7 +3,7 @@ Taproots is a library for traversing nested data structures.
 """
 module Taproots
 using PrecompileTools: @setup_workload, @compile_workload
-export Taproot, tapin, tapout,
+export Taproot, tapin, tapout, NotImplementedError,
     eachfield,
     children, childtype, childtypes, data, setchildren!, setdata!,
     ischild, isparent, isleaf, isbranch,

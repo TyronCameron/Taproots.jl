@@ -33,5 +33,10 @@ ans = [1,4,9,16,25,36,49,64,81,100,8,27]
 
 end
 
+struct BareNode end
 
-
+@testset "Missing setters" begin
+	@test_throws NotImplementedError setdata!(BareNode(), 1)
+	@test_throws NotImplementedError setchildren!(BareNode(), [BareNode()])
+	@test occursin("BareNode", sprint(showerror, NotImplementedError(:setdata!, BareNode, "")))
+end

@@ -16,9 +16,8 @@ function _copy_or_reconstruct(x)
     elseif x isa Symbol
         return x
     elseif ismutable(x)
-        fieldvals = getfield.(Ref(x), 1:fieldcount(typeof(x)))
         try
-            return typeof(x)(fieldvals...)
+            return typeof(x)(ntuple(i -> getfield(x, i), fieldcount(typeof(x)))...)
         catch
             @warn """
                 No public constructor for $(typeof(x)); using Base.unsafe_copy as fallback.
