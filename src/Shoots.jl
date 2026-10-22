@@ -31,12 +31,6 @@ Selects levels only when iterating. For use in iterator functions such `preorder
 """
 struct Level <: Shoot end
 
-# WholeSprout is internal: it selects the sprout itself, wrapping the shoots the
-# caller asked for. It lets the bottomup mapping pass reuse the preorder walk.
-struct WholeSprout{S} <: Shoot
-    shoots::S
-end
-
 # Standardisation
 standardisedshoot(::Type{S}) where {S <: Shoot} = S()
 standardisedshoot(shoots::Tuple) = map(standardisedshoot, shoots)
@@ -46,7 +40,6 @@ hastrace(::Node) = false
 hastrace(::Level) = false
 hastrace(::Trace) = true
 hastrace(shoots::Tuple) = any(hastrace, shoots)
-hastrace(w::WholeSprout) = hastrace(w.shoots)
 
 # TraceLinks 
 struct TraceLinks
@@ -112,10 +105,8 @@ takeshoot(shoots::Tuple, s::AbstractSprout) = map(sh -> takeshoot(sh, s), shoots
 takeshoot(::Node, s::AbstractSprout) = nodeof(s)
 takeshoot(::Trace, s::TracedSprout) = totuple(traceof(s))
 takeshoot(::Level, s::AbstractSprout) = levelof(s)
-takeshoot(::WholeSprout, s::AbstractSprout) = s
 
 yieldtype(shoots::Tuple, ::Type{S}) where {S <: AbstractSprout} = Tuple{map(sh -> yieldtype(sh, S), shoots)...}
 yieldtype(::Node, ::Type{S}) where {S <: AbstractSprout} = nodetypeof(S)
 yieldtype(::Trace, ::Type{<:AbstractSprout}) = Tuple{Vararg{Int}}
 yieldtype(::Level, ::Type{<:AbstractSprout}) = Int
-yieldtype(::WholeSprout, ::Type{S}) where {S <: AbstractSprout} = S

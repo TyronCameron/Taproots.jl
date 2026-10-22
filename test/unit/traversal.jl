@@ -129,8 +129,25 @@ end
 				if !valid break end
 			end
 			valid
-		end 
+		end
 	end
+
+	@testset "Every pathset gives the same length in every iterator" begin
+		x = Taproot("X", [Taproot("Y", Taproot[])])
+		shortcut = Taproot("R", [Taproot("A", [Taproot("B", [x])]), x]) # X sits at two different depths
+		for taproot in (fast_examples..., shortcut), pathset in (AllPaths, NoCycles, OncePerEdge, OncePerNode)
+			lengths = [length(collect(iter(taproot; pathset))) for iter in (preorder, postorder, topdown, bottomup)]
+			@test allequal(lengths)
+		end
+	end
+end
+
+@testset "bottomup keeps children before parents for every pathset" begin
+	x = Taproot("X", [Taproot("Y", Taproot[])])
+	shortcut = Taproot("R", [Taproot("A", [Taproot("B", [x])]), x])
+	@test map(n -> n.data, collect(bottomup(shortcut; pathset = NoCycles))) == ["Y", "Y", "X", "X", "B", "A", "R"]
+	@test map(n -> n.data, collect(bottomup(shortcut; pathset = OncePerEdge))) == ["Y", "X", "X", "B", "A", "R"]
+	@test map(n -> n.data, collect(topdown(shortcut; pathset = NoCycles))) == ["R", "A", "X", "B", "Y", "X", "Y"]
 end
 
 # The algorithm leafbatches is defined by: repeatedly take the leaves, ignoring the ones already taken
