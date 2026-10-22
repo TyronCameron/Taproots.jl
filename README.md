@@ -11,7 +11,7 @@
 [![Docs workflow Status](https://github.com/TyronCameron/Taproots.jl/actions/workflows/doc.yml/badge.svg)](https://github.com/TyronCameron/Taproots.jl/actions/workflows/doc.yml)
 [![Aqua QA](https://juliatesting.github.io/Aqua.jl/dev/assets/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 
-Traverse nested structs and data (including your own custom ones) in easy peasy ways. No graph object, no adjacency matrix, no hand-rolled recursion: tell Taproots how to find a node's children and start walking.
+Traverse nested structs and data (including your own custom ones) in easy peasy ways. Tell Taproots how to find a node's children and start traversing, without having to set up a graph, an adjacency matrix, or hand-roll a recursion.
 
 Inspired by `AbstractTrees.jl`, with node tracking on top, so shared children and cycles are handled for you. Walks are lazy, won't stack overflow on deep data, and run about as fast as a quick-and-easy recursion.
 
@@ -49,12 +49,11 @@ A = MyType("A", [B, C, D])
 And walk it:
 
 ```julia
-preorder(A)     # A D G I H C F B E   (parents before children)
-postorder(A)    # I H G D F C E B A   (children before parents)
-topdown(A)      # A B C D E F G H I   (level by level)
-bottomup(A)     # I H E F G B C D A   (a topological sort)
-leaves(A)       # I H E
-leafbatches(A)  # [I, H, E], [F, G], [B, C, D], [A]   (parallelisable batches)
+preorder(A)   # A D G I H C F B E   (parents before children)
+postorder(A)  # I H G D F C E B A   (children before parents)
+topdown(A)    # A B C D E F G H I   (level by level)
+bottomup(A)   # I H E F G B C D A   (a topological sort)
+leaves(A)     # I H E
 ```
 
 <p align="center">
@@ -71,7 +70,11 @@ end
 #   D  (3,)
 #     G  (3, 1)
 #       I  (3, 1, 2)
-# ...
+#       H  (3, 1, 1)
+#   C  (2,)
+#     F  (2, 1)
+#   B  (1,)
+#     E  (1, 1)
 ```
 
 No interface? Pass a `children` function on the spot:
