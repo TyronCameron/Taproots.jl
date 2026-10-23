@@ -113,7 +113,9 @@ Supports `kwargs` include:
 
 This creates an eager iterator as a bottomup (reverse level-order) breadth-first search of your custom Taproot. This is topological order.
 The bottom children are iterated first, and then the next layer up and so on. Leaves are not technically guaranteed to be iterated on first, before parents.
-While the other iterators are lazy, this one is eager. This iterator is, of course, not capable of running on taproots which are cyclical (and it will abandon the cycles automatically).
+While the other iterators are lazy, this one is eager: it maps every reachable node up front (evaluating `children` and the `connector` once per edge), since any node it has not seen yet could still be a leaf that must come first.
+If you only need children before their parents, `postorder` is lazy and, with `OncePerNode`, also a topological order.
+This iterator is, of course, not capable of running on taproots which are cyclical (and it will abandon the cycles automatically).
 
 # Usage
 ```julia
@@ -141,12 +143,14 @@ Supports `kwargs` include:
 - `eltype::Union{Type{<:Shoot}, Tuple}`, this determines what each batch holds. Options include: `Node`, `Level`, `Trace`, or combinations such as `(Node, Level, Trace)`
 - `sizeguess::Int = 256`, a guess of how many nodes the taproot holds, used to preallocate internal tracking structures
 
-This creates an eager iterator of batches (vectors) of nodes. The first batch is `leaves(taproots...)`.
-Each later batch holds the nodes whose connected children all sit in earlier batches: the leaves you would get if you plucked off every batch before it.
-Flattening the batches gives exactly `bottomup`, so a node lands in the batch numbered by its height above the leaves.
+This creates an iterator of batches (vectors) of nodes. The first batch is `leaves(taproots...)`.
+Each later batch holds the nodes that have since become leaves: every child they were connected to has been yielded, and the `connector` no longer connects it.
+The `connector` is checked again before every batch, so with `connector = (node, child) -> !isdone(child)` a node waits until all of its children are done.
+While nothing is ready yet the batch is empty, and it is up to you to wait or break. A `connector` that never lets go of a child yields empty batches forever.
+Without a `connector`, a child lets go as soon as it is yielded, so flattening the batches gives exactly `bottomup`.
 
 Nothing within a batch depends on anything else in that batch, so each batch can be processed in parallel.
-Like `bottomup`, this abandons cycles (and everything above them), and the `connector` is evaluated once per edge, up front.
+Like `bottomup`, this abandons cycles (and everything above them).
 
 # Usage
 ```julia
@@ -243,7 +247,6 @@ end
 children(x::MultiTaproot) = x.children
 
 shouldyield(shoots, node) = !(node isa MultiTaproot)
-shouldyield(::WholeSprout, node) = true
 
 Base.@constprop :aggressive function iterate_multi_taproot(
     walk_order,
@@ -353,8 +356,16 @@ function buildwalk(walk_order, shoots, children, connector, pathset, root; sizeg
     N = childtypes(root)
     S = sprouttype(shoots, N)
     frontier = initfrontier(walk_order, S, shoots, children, connector, pathset, root, sizeguess)
-    return Walk{walk_order, walkeltype(walk_order, yieldtype(shoots, S))}(frontier, initpathset(pathset, N; sizeguess), shoots, children, connector, initsprout(S, root))
+    return Walk{walk_order, walkeltype(walk_order, yieldtype(shoots, S))}(frontier, initpathset(walkpathset(walk_order, pathset), N; sizeguess), shoots, children, connector, initsprout(S, root))
 end
+
+"""
+    walkpathset(walk_order, pathset)
+
+The pathset a walk tracks as it goes. `Bottomup` and `Leafbatches` apply theirs while mapping the frontier, so they track nothing more.
+"""
+walkpathset(walk_order, pathset) = pathset
+walkpathset(::Type{<:Union{Bottomup, Leafbatches}}, pathset) = AllPaths
 
 walkeltype(walk_order, ::Type{T}) where T = T
 walkeltype(::Type{Leafbatches}, ::Type{T}) where T = Vector{T}
@@ -362,12 +373,8 @@ walkeltype(::Type{Leafbatches}, ::Type{T}) where T = Vector{T}
 firstsprout(::Type{S}, shoots, root, sizeguess = 8) where S = sizehint!(S[initsprout(S, root)], sizeguess)
 initfrontier(::Type{Preorder}, ::Type{S}, shoots, children, connector, pathset, root, sizeguess = 8) where S = StackFrontier{S}(firstsprout(S, shoots, root))
 initfrontier(::Type{Postorder}, ::Type{S}, shoots, children, connector, pathset, root, sizeguess = 8) where S = PostorderStackFrontier{S}(firstsprout(S, shoots, root), sizehint!([false], sizeguess))
-initfrontier(::Type{Topdown}, ::Type{S}, shoots, children, connector, pathset, root, sizeguess = 8) where S = QueueFrontier{S}(firstsprout(S, shoots, root), 1)
-function initfrontier(::Type{Bottomup}, ::Type{S}, shoots, children, connector, ::Type{P}, root, sizeguess = 8) where {S, P}
-    mappath = P <: OncePerNode ? OncePerNode : NoCycles
-    premap = buildwalk(Preorder, WholeSprout(shoots), children, connector, mappath, root; sizeguess)
-    return BottomupFrontier(collect(premap), children, connector, mappath)
-end
+initfrontier(::Type{Topdown}, ::Type{S}, shoots, children, connector, pathset, root, sizeguess = 8) where S = QueueFrontier{S}(firstsprout(S, shoots, root), sizehint!([0], sizeguess), 1)
+initfrontier(::Type{Bottomup}, ::Type{S}, shoots, children, connector, pathset, root, sizeguess = 8) where S = BottomupFrontier{S}(children, connector, pathset, root; sizeguess)
 initfrontier(::Type{Leafbatches}, args...) = initfrontier(Bottomup, args...)
 
 ## Walk in different orders
@@ -421,13 +428,24 @@ end
 
 ### Topdown
 
+"""
+    visitsprout(pathset, queue, sprout)
+    tracksprout!(pathset, queue, sprout)
+
+`visitnode` and `tracknode!` for a breadth-first walk. `NoCycles` keeps its ancestors on a stack, which only works depth first, so here it asks the queue instead.
+"""
+visitsprout(pathset, queue, sprout) = visitnode(pathset, nodeof(sprout), levelof(sprout))
+visitsprout(::NoCycles, queue::QueueFrontier, sprout) = !isancestor(queue, nodeof(sprout))
+tracksprout!(pathset, queue, sprout) = tracknode!(pathset, nodeof(sprout), levelof(sprout))
+tracksprout!(::NoCycles, queue::QueueFrontier, sprout) = nothing
+
 function walk!(walker::Walk{Topdown}, sink = nothing)
     queue, pathset, shoots, children, connector = walkparts(walker)
     @resume walker
     while !isempty(queue)
         sprout = take!(queue)
         node = nodeof(sprout)
-        if !visitnode(pathset, node, levelof(sprout)) continue end
+        if !visitsprout(pathset, queue, sprout) continue end
         if shouldyield(shoots, node)
             @yield takeshoot(shoots, sprout)
         end
@@ -435,7 +453,7 @@ function walk!(walker::Walk{Topdown}, sink = nothing)
             if !connector(node, child) || !visitchild(pathset, node, child) continue end
             put!(queue, putsprout(sprout, child, i))
         end
-        tracknode!(pathset, node, levelof(sprout))
+        tracksprout!(pathset, queue, sprout)
     end
     return finish!(walker)
 end
@@ -448,9 +466,6 @@ function walk!(walker::Walk{Bottomup}, sink = nothing)
     while !isempty(frontier)
         sprout = take!(frontier)
         node = nodeof(sprout)
-        should_visit_node = visitnode(pathset, node, levelof(sprout))
-        tracknode!(pathset, node, levelof(sprout))
-        if !should_visit_node continue end
         if shouldyield(shoots, node)
             @yield takeshoot(shoots, sprout)
         end
@@ -460,20 +475,29 @@ end
 
 ### Leafbatches
 
+"""
+    holds(connector)
+
+Whether a yielded child keeps holding its parents in `leafbatches` until the `connector` lets go of it.
+Without a connector there is nothing to wait on, so a child lets go as soon as it is yielded.
+"""
+holds(connector) = true
+holds(::typeof(alwaysconnect)) = false
+
 function walk!(walker::Walk{Leafbatches, Vector{T}}, sink = nothing) where T
     frontier, pathset, shoots, children, connector = walkparts(walker)
     sprout = walker.sprout
     @resume walker
-    while !isempty(frontier)
+    while !isempty(frontier) || !isempty(frontier.waiting)
+        recheck!(frontier, connector)
         batch = T[]
-        for _ in 1:readycount(frontier)
-            sprout = take!(frontier)
-            node = nodeof(sprout)
-            should_visit_node = visitnode(pathset, node, levelof(sprout))
-            tracknode!(pathset, node, levelof(sprout))
-            if should_visit_node && shouldyield(shoots, node) push!(batch, takeshoot(shoots, sprout)) end
+        ready = readycount(frontier)
+        for _ in 1:ready
+            sprout = take!(frontier, holds(connector))
+            if shouldyield(shoots, nodeof(sprout)) push!(batch, takeshoot(shoots, sprout)) end
         end
-        if !isempty(batch)
+        allhidden = ready > 0 && isempty(batch)
+        if !allhidden
             @yield batch
         end
     end

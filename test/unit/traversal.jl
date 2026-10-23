@@ -1,6 +1,15 @@
 
 iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)	
 
+function leafbatches_markingdone(root; connector = (node, child) -> true, done = Set(), kwargs...)
+	batches = []
+	for batch in leafbatches(root; connector = (node, child) -> connector(node, child) && child ∉ done, kwargs...)
+		union!(done, batch)
+		push!(batches, batch)
+	end
+	return batches
+end
+
 @testset "Traversal exact answers" begin
 
 	to_compare = vec -> map(x -> x isa MoreFlexiTaproot ? x.data : x, collect(vec))
@@ -71,8 +80,7 @@ iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)
 		@test collect(leafbatches(collider; eltype = Trace)) == [[(2, 1), (1, 2)], [(2,), (1,)], [()]]
 		@test batches(leafbatches(collider.children...)) == [["Collider", "Loner"], ["Go right", "Go left"]]
 
-		done = Set([collider.children[1]])
-		@test batches(leafbatches(collider; connector = (node, child) -> child ∉ done)) == [["Collider"], ["Go right"], ["The top"]]
+		@test batches(leafbatches_markingdone(collider; done = Set{Any}([collider.children[1]]))) == [["Collider"], ["Go right"], ["The top"]]
 
 		@test eltype(leafbatches(collider)) == Vector{Any}
 		@test collect(leafbatches(cycle)) == [[nothing]]
@@ -129,8 +137,25 @@ end
 				if !valid break end
 			end
 			valid
-		end 
+		end
 	end
+
+	@testset "Every pathset gives the same length in every iterator" begin
+		x = Taproot("X", [Taproot("Y", Taproot[])])
+		x_at_two_depths = Taproot("R", [Taproot("A", [Taproot("B", [x])]), x])
+		for taproot in (fast_examples..., x_at_two_depths), pathset in (AllPaths, NoCycles, OncePerEdge, OncePerNode)
+			lengths = [length(collect(iter(taproot; pathset))) for iter in (preorder, postorder, topdown, bottomup)]
+			@test allequal(lengths)
+		end
+	end
+end
+
+@testset "bottomup keeps children before parents for every pathset" begin
+	x = Taproot("X", [Taproot("Y", Taproot[])])
+	shortcut = Taproot("R", [Taproot("A", [Taproot("B", [x])]), x])
+	@test map(n -> n.data, collect(bottomup(shortcut; pathset = NoCycles))) == ["Y", "Y", "X", "X", "B", "A", "R"]
+	@test map(n -> n.data, collect(bottomup(shortcut; pathset = OncePerEdge))) == ["Y", "X", "X", "B", "A", "R"]
+	@test map(n -> n.data, collect(topdown(shortcut; pathset = NoCycles))) == ["R", "A", "X", "B", "Y", "X", "Y"]
 end
 
 function naive_leafbatches(root; connector = (node, child) -> true, pathset = OncePerNode)
@@ -149,10 +174,43 @@ end
 	samebatch(a, b) = length(a) == length(b) && Set(a) == Set(b)
 	connectors = ((node, child) -> true, (node, child) -> !(child isa String), (node, child) -> child != final_collider)
 	for taproot in fast_examples, pathset in (OncePerNode, AllPaths), connector in connectors
-		ours = collect(leafbatches(taproot; pathset, connector))
+		ours = leafbatches_markingdone(taproot; pathset, connector)
 		theirs = naive_leafbatches(taproot; pathset, connector)
 		@test length(ours) == length(theirs) && all(samebatch.(ours, theirs))
 		@test reduce(vcat, ours; init = Any[]) == collect(bottomup(taproot; pathset, connector))
+	end
+end
+
+@testset "leafbatches waits for the connector to let go" begin
+	y = Taproot("Y", Taproot[]); x = Taproot("X", [y]); z = Taproot("Z", Taproot[])
+	r = Taproot("R", [x, z])
+	names = batch -> map(n -> n.data, batch)
+
+	@testset "a parent waits until its children are done" begin
+		done = Set{Taproot}()
+		walk = leafbatches(r; connector = (node, child) -> child ∉ done)
+		batch, state = iterate(walk)
+		@test names(batch) == ["Z", "Y"]
+		push!(done, z)
+		batch, state = iterate(walk, state)
+		@test isempty(batch)
+		batch, state = iterate(walk, state)
+		@test isempty(batch)
+		push!(done, y)
+		batch, state = iterate(walk, state)
+		@test names(batch) == ["X"]
+		push!(done, x)
+		batch, state = iterate(walk, state)
+		@test names(batch) == ["R"]
+		@test iterate(walk, state) === nothing
+	end
+
+	@testset "children done before the walk are never yielded" begin
+		@test map(names, leafbatches_markingdone(r; done = Set{Any}([z]))) == [["Y"], ["X"], ["R"]]
+	end
+
+	@testset "without a connector, a child lets go once it is yielded" begin
+		@test map(names, collect(leafbatches(r))) == [["Z", "Y"], ["X"], ["R"]]
 	end
 end
 
