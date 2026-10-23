@@ -1,7 +1,6 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Grafting and Plucking
 #─────────────────────────────────────────────────────────────────────────────#
-    # Helpful getters, setters, and transformers on taproots
 
 """
     pluck(parent, trace[, default = nothing])
@@ -73,7 +72,7 @@ Base.hash(a::UprootHelper, h::UInt) = hash(a.node, h)
 Base.isequal(a::UprootHelper, b::UprootHelper) = a.node == b.node
 uproothelper(parent, node) = UprootHelper(parent, node, [], false)
 function children(node::UprootHelper) 
-    if !node.mapped # cache results
+    if !node.mapped
         node.children = uproothelper.([node.parent], parents(node.parent, node.node))
         node.mapped = true
     end 
@@ -88,7 +87,7 @@ This can be a bit slow for the moment for large taproots.
 """
 function uproot(parent, child)
     root = uproothelper(parent, child)
-    post = collect(postorder(root)) # map out the structure early
+    post = collect(postorder(root))
     node_map = foldl(post; init=Dict()) do acc, node
         acc[node.node] = _copy_or_reconstruct(node.node)
         acc

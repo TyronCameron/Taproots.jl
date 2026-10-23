@@ -1,7 +1,6 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Iteration
 #─────────────────────────────────────────────────────────────────────────────#
-    # The core iteration functions
 
 
 ## Public facing API
@@ -145,13 +144,10 @@ Supports `kwargs` include:
 - `sizeguess::Int = 256`, a guess of how many nodes the taproot holds, used to preallocate internal tracking structures
 
 This creates an iterator of batches (vectors) of nodes. The first batch is `leaves(taproots...)`.
-Each later batch holds the nodes that have become leaves since: every child they were connected to has been yielded and the `connector` no longer connects it.
-Without a `connector`, a child lets go of its parents as soon as it is yielded, so flattening the batches gives exactly `bottomup`, and a node lands in the batch numbered by its height above the leaves.
-
-The `connector` is read live. The taproot is mapped up front, skipping children the `connector` already disconnects. After that, each yielded child is checked again before every batch until it lets go.
-So with `connector = (node, child) -> !isdone(child)`, a node is only yielded once all of its children are done, however long they take.
-While nothing new is a leaf yet but yielded children are still connected, the batch is empty. Then it's up to you to wait, or break out of the loop.
-A `connector` that never lets go of a child (for example, one that ignores whether it is done) keeps yielding empty batches forever, so `collect` will never return.
+Each later batch holds the nodes that have since become leaves: every child they were connected to has been yielded, and the `connector` no longer connects it.
+The `connector` is checked again before every batch, so with `connector = (node, child) -> !isdone(child)` a node waits until all of its children are done.
+While nothing is ready yet the batch is empty, and it is up to you to wait or break. A `connector` that never lets go of a child yields empty batches forever.
+Without a `connector`, a child lets go as soon as it is yielded, so flattening the batches gives exactly `bottomup`.
 
 Nothing within a batch depends on anything else in that batch, so each batch can be processed in parallel.
 Like `bottomup`, this abandons cycles (and everything above them).
@@ -201,11 +197,11 @@ Base.@constprop :aggressive tracepairs(args...; kwargs...) = preorder(args...; k
 
 alwaysconnect(node, child) = true
 
-Base.@constprop :aggressive function standardised_iterate_taproot(walk_order::Type{<:WalkOrder}, taproot, taproots...; kwargs...) # no children function
+Base.@constprop :aggressive function standardised_iterate_taproot(walk_order::Type{<:WalkOrder}, taproot, taproots...; kwargs...)
     standardised_iterate_taproot(walk_order, children, taproot, taproots...; kwargs...)
 end
 
-Base.@constprop :aggressive function standardised_iterate_taproot( # Allow passing the `children` function
+Base.@constprop :aggressive function standardised_iterate_taproot(
     walk_order::Type{<:WalkOrder},
     children::Union{Function, Type},
     taproot,
@@ -227,23 +223,30 @@ Base.@constprop :aggressive function standardised_iterate_taproot( # Allow passi
     )
 end
 
-# A preorder walk keeping only the nodes for which `keep(children, node; connector)` holds.
-# The node rides along with the requested shoots, so any `eltype` works.
+"""
+    filterwalk(keep, [children], taproots...; kwargs...)
+
+A preorder walk keeping only the nodes for which `keep(children, node; connector)` holds.
+The node rides along with the requested shoots, so any `eltype` works.
+"""
 Base.@constprop :aggressive filterwalk(keep, taproot, taproots...; kwargs...) = filterwalk(keep, children, taproot, taproots...; kwargs...)
 Base.@constprop :aggressive function filterwalk(keep, children::Union{Function, Type}, taproot, taproots...; connector = alwaysconnect, eltype = Node, kwargs...)
     walk = preorder(children, taproot, taproots...; connector, eltype = (Node, eltype), kwargs...)
     return (shoot for (node, shoot) in walk if keep(children, node; connector))
 end
 
-# For a set of Taproots, I think just create a single parent which has all the listed taproots as children
-# That way, all nodes are iterated over in the correct order, even bottomup and topdown
-# The MultiTaproot just can't be part of the final result
+"""
+    MultiTaproot(children)
+
+A synthetic parent of several taproots, so that walking it visits all of their nodes in the correct order, even bottomup and topdown.
+It is never yielded itself.
+"""
 struct MultiTaproot{T}
     children::T
 end
 children(x::MultiTaproot) = x.children
 
-shouldyield(shoots, node) = !(node isa MultiTaproot) # single-root walks: constant-folds to true
+shouldyield(shoots, node) = !(node isa MultiTaproot)
 
 Base.@constprop :aggressive function iterate_multi_taproot(
     walk_order,
@@ -264,26 +267,31 @@ end
 
 ## Typed walk construction
 ##────────────────────────────────────────────────────────────────────────────#
-    # A Walk is a lightweight coroutine. `walk!` runs a walk's while loop until it
-    # hits `@yield`, which parks the current sprout and the yielded value in the
-    # Walk and returns. The next `walk!` call starts with `@resume`, which jumps
-    # straight back to just after that `@yield`, so the loop carries on exactly
-    # where it left off. Every field is concretely typed, so walks are type stable
-    # and yielding a tuple or struct never allocates.
 
 const FRESH = 0x00
 const SUSPENDED = 0x01
 const FINISHED = 0x02
 
+"""
+    Walk
+
+A lightweight coroutine. `walk!` runs a walk's loop until it hits `@yield`, which parks the current sprout and the yielded value in the `Walk` and returns.
+The next `walk!` call starts with `@resume`, which jumps straight back to just after that `@yield`, so the loop carries on exactly where it left off.
+Every field is concretely typed, so walks are type stable and yielding a tuple or struct never allocates.
+
+- `sprout`: the sprout held at the last `@yield`, the only local still needed after a yield
+- `value`: the last yielded value
+- `state`: `FRESH`, `SUSPENDED` or `FINISHED`
+"""
 mutable struct Walk{O <: WalkOrder, T, F, P, Sh, C, K, S}
     frontier::F
     pathset::P
     shoots::Sh
     children::C
     connector::K
-    sprout::S # the sprout held at the last @yield: the only local still needed after a yield
-    value::T # the last yielded value
-    state::UInt8 # FRESH, SUSPENDED or FINISHED
+    sprout::S
+    value::T
+    state::UInt8
     function Walk{O, T}(frontier::F, pathset::P, shoots::Sh, children::C, connector::K, sprout::S) where {O, T, F, P, Sh, C, K, S}
         walker = new{O, T, F, P, Sh, C, K, S}(frontier, pathset, shoots, children, connector, sprout)
         walker.state = FRESH
@@ -308,9 +316,12 @@ end
 walkparts(walker::Walk) = (walker.frontier, walker.pathset, walker.shoots, walker.children, walker.connector)
 finish!(walker::Walk) = (walker.state = FINISHED; false)
 
-# Inside `walk!(walker, sink)`: hand `value` out of the walk, remembering `sprout`.
-# The matching `@resume` jumps back to the label right after this.
-# With a `sink`, the walk runs eagerly instead: `value` goes to `sink` and the loop carries on.
+"""
+    @yield value
+
+Inside `walk!(walker, sink)`: hands `value` out of the walk, remembering `sprout`. The matching `@resume` jumps back to the label right after this.
+With a `sink`, the walk runs eagerly instead: `value` goes to `sink` and the loop carries on.
+"""
 macro yield(value)
     esc(quote
         if sink === nothing
@@ -325,7 +336,11 @@ macro yield(value)
     end)
 end
 
-# First line of `walk!(walker)`: carry on from the last `@yield`, if there was one.
+"""
+    @resume walker
+
+The first line of `walk!(walker)`: carries on from the last `@yield`, if there was one.
+"""
 macro resume(walker)
     esc(quote
         $walker.state === $FINISHED && return false
@@ -344,8 +359,13 @@ function buildwalk(walk_order, shoots, children, connector, pathset, root; sizeg
     return Walk{walk_order, walkeltype(walk_order, yieldtype(shoots, S))}(frontier, initpathset(walkpathset(walk_order, pathset), N; sizeguess), shoots, children, connector, initsprout(S, root))
 end
 
+"""
+    walkpathset(walk_order, pathset)
+
+The pathset a walk tracks as it goes. `Bottomup` and `Leafbatches` apply theirs while mapping the frontier, so they track nothing more.
+"""
 walkpathset(walk_order, pathset) = pathset
-walkpathset(::Type{<:Union{Bottomup, Leafbatches}}, pathset) = AllPaths # the frontier already applied the pathset while mapping
+walkpathset(::Type{<:Union{Bottomup, Leafbatches}}, pathset) = AllPaths
 
 walkeltype(walk_order, ::Type{T}) where T = T
 walkeltype(::Type{Leafbatches}, ::Type{T}) where T = Vector{T}
@@ -407,11 +427,15 @@ function walk!(walker::Walk{Postorder}, sink = nothing)
 end
 
 ### Topdown
-    # NoCycles keeps its ancestors on a stack, which only works depth first.
-    # Breadth first, the queue remembers each sprout's parent instead.
 
+"""
+    visitsprout(pathset, queue, sprout)
+    tracksprout!(pathset, queue, sprout)
+
+`visitnode` and `tracknode!` for a breadth-first walk. `NoCycles` keeps its ancestors on a stack, which only works depth first, so here it asks the queue instead.
+"""
 visitsprout(pathset, queue, sprout) = visitnode(pathset, nodeof(sprout), levelof(sprout))
-visitsprout(::NoCycles, queue::QueueFrontier, sprout) = !onpath(queue, nodeof(sprout))
+visitsprout(::NoCycles, queue::QueueFrontier, sprout) = !isancestor(queue, nodeof(sprout))
 tracksprout!(pathset, queue, sprout) = tracknode!(pathset, nodeof(sprout), levelof(sprout))
 tracksprout!(::NoCycles, queue::QueueFrontier, sprout) = nothing
 
@@ -440,7 +464,7 @@ function walk!(walker::Walk{Bottomup}, sink = nothing)
     frontier, pathset, shoots, children, connector = walkparts(walker)
     @resume walker
     while !isempty(frontier)
-        sprout = take!(frontier) # only taken once all of this sprout's children were taken
+        sprout = take!(frontier)
         node = nodeof(sprout)
         if shouldyield(shoots, node)
             @yield takeshoot(shoots, sprout)
@@ -450,17 +474,19 @@ function walk!(walker::Walk{Bottomup}, sink = nothing)
 end
 
 ### Leafbatches
-    # The bottomup queue already runs in batches: every sprout released while taking
-    # one batch queues up behind it. So a batch is whatever was ready when it began.
-    # With a connector, a yielded child holds its parents until the connector lets
-    # go of it, so its parents wait for it to be done, not just yielded.
-    # While nothing is ready yet but children are still held, the batch is empty.
 
+"""
+    holds(connector)
+
+Whether a yielded child keeps holding its parents in `leafbatches` until the `connector` lets go of it.
+Without a connector there is nothing to wait on, so a child lets go as soon as it is yielded.
+"""
 holds(connector) = true
-holds(::typeof(alwaysconnect)) = false # nothing to wait on: a child lets go once it's yielded
+holds(::typeof(alwaysconnect)) = false
 
 function walk!(walker::Walk{Leafbatches, Vector{T}}, sink = nothing) where T
     frontier, pathset, shoots, children, connector = walkparts(walker)
+    sprout = walker.sprout
     @resume walker
     while !isempty(frontier) || !isempty(frontier.waiting)
         recheck!(frontier, connector)
@@ -470,7 +496,8 @@ function walk!(walker::Walk{Leafbatches, Vector{T}}, sink = nothing) where T
             sprout = take!(frontier, holds(connector))
             if shouldyield(shoots, nodeof(sprout)) push!(batch, takeshoot(shoots, sprout)) end
         end
-        if !isempty(batch) || ready == 0 # skip a batch of just the synthetic multi-root parent
+        allhidden = ready > 0 && isempty(batch)
+        if !allhidden
             @yield batch
         end
     end

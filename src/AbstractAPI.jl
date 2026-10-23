@@ -2,7 +2,6 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Abstract API
 #─────────────────────────────────────────────────────────────────────────────#
-    # This file contains the things that the user would normally override
 
 """
     children(node)
@@ -46,7 +45,6 @@ const NODETYPE_MAX_WIDTH = 4
 Gets a type which we believe is the union of all children types (recursively). Gives up after depth 3 and width 4, falling back to Any. 
 """
 childtypes(root) = childtypes(typeof(root), Val(NODETYPE_MAX_DEPTH))
-# Recursing on the remaining depth (rather than looping) lets inference resolve the result at compile time
 childtypes(::Type, ::Val{0}) = Any
 function childtypes(::Type{T}, ::Val{D}) where {T, D}
     (T === Any || unionwidth(T) > NODETYPE_MAX_WIDTH) && return Any
@@ -85,6 +83,19 @@ data(expr::Expr) = expr.head
 data(x::Taproot) = x.data
 
 """
+    NotImplementedError
+
+Thrown when your node type is missing a method that Taproots needs, such as `setchildren!` or `setdata!`.
+The message names the method to define.
+"""
+struct NotImplementedError <: Exception
+    func::Symbol
+    nodetype::Type
+    hint::String
+end
+Base.showerror(io::IO, e::NotImplementedError) = print(io, "NotImplementedError: Taproots.$(e.func) is not implemented for $(e.nodetype). $(e.hint)")
+
+"""
     setchildren!(node, children::Vector)::typeof(node)
 
 Sets the children of your node. This is required for the following functionality:
@@ -105,8 +116,7 @@ function setchildren!(node, child_list)
     if isempty(children(node)) && isempty(child_list)
         return node
     end
-    error("Taproots.setchildren!(node::$(typeof(node)), children) not implemented!")
-    return node
+    throw(NotImplementedError(:setchildren!, typeof(node), "Define `Taproots.setchildren!(node::$(typeof(node)), children)` so that it returns the node and `setchildren!(node, children(node))` leaves it unchanged."))
 end
 setchildren!(node::Expr, children) = (node.args = children; node)
 setchildren!(node::Vector, children) = (empty!(node); append!(node, children); node)
@@ -142,7 +152,7 @@ This is required to be implemented for the following functionality:
 Taproots.setdata!(node::MyDataStructure, data) = (node.data = data; node)
 ```
 """
-setdata!(node, data) = error("Taproots.setdata!(node::$(typeof(node)), data) not implemented! It is intended that you implement this function -- it has downtrack implications for Taproots functionality.")
+setdata!(node, data) = throw(NotImplementedError(:setdata!, typeof(node), "Define `Taproots.setdata!(node::$(typeof(node)), data)` so that it returns the node and `setdata!(node, data(node))` leaves it unchanged. Mapping functions such as `tapmap!` rely on it."))
 setdata!(node::Symbol, data) = data
 setdata!(node::Expr, data) = node
 setdata!(node::LineNumberNode, data) = node

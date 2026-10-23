@@ -1,18 +1,22 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Pathsets
 #─────────────────────────────────────────────────────────────────────────────#
-    # Properties about the paths that are allowed (all paths, no cycles, once per edge, once per node)
-    # Pathsets themselves are trackers and require the following functions
-        # initpathset(::Type{<:Pathset}[, ::Type{N}]; sizeguess) -- create a default version (optionally with typed storage for node type N, preallocated for ~sizeguess nodes)
-        # tracknode!(pathset::PathSet, node, level) -- tracks the node so that we don't visit it again
-        # visitnode(pathset::PathSet, node, level) -- should we visit this next node?
-        # visitchild(pathset::PathSet, node, child) -- should we visit the child? Useful for edges
 
+"""
+    PathSet
+
+Decides which paths a walk may follow (all paths, no cycles, once per edge, once per node) by tracking what has been visited.
+Each pathset implements:
+
+- `initpathset(::Type{<:PathSet}[, ::Type{N}]; sizeguess)`: create a tracker, optionally with storage typed for node type `N` and preallocated for about `sizeguess` nodes
+- `tracknode!(pathset, node, level)`: record `node` so that it is not visited again
+- `visitnode(pathset, node, level)`: whether to visit `node`
+- `visitchild(pathset, node, child)`: whether to follow the edge to `child`
+"""
 abstract type PathSet end
 
 ## AllPaths
 ##────────────────────────────────────────────────────────────────────────────#
-    # Goes through every permutation of edges
 
 """
     AllPaths
@@ -30,7 +34,6 @@ visitchild(::AllPaths, node, child) = true
 
 ## NoCycles
 ##────────────────────────────────────────────────────────────────────────────#
-    # Stops when it sees cycles
 
 """
     NoCycles
@@ -52,7 +55,7 @@ function tracknode!(t::NoCycles, node, level)
     push!(t.latest, node)
 end
 function visitnode(t::NoCycles, node, level)
-    while length(t.latest) > level # truncate the parent stack down to this node's ancestors
+    while length(t.latest) > level
         delete!(t.parents, pop!(t.latest))
     end
     return node ∉ t.parents
@@ -61,7 +64,6 @@ visitchild(t::NoCycles, node, child) = true
 
 ## OncePerEdge
 ##────────────────────────────────────────────────────────────────────────────#
-    # Stops when it sees the same combo of node and parent
 
 """
     OncePerEdge
@@ -82,7 +84,6 @@ visitchild(t::OncePerEdge, node, child) = node ∉ t.visited
 
 ## OncePerNode
 ##────────────────────────────────────────────────────────────────────────────#
-    # Stops when it sees the same node it's already visited
 
 """
     OncePerNode

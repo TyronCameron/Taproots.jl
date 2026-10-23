@@ -1,8 +1,7 @@
 
 iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)	
 
-# Walks leafbatches the way it's meant to be used: every batch is marked done before the next is asked for
-function leafbatches_marking(root; connector = (node, child) -> true, done = Set(), kwargs...)
+function leafbatches_markingdone(root; connector = (node, child) -> true, done = Set(), kwargs...)
 	batches = []
 	for batch in leafbatches(root; connector = (node, child) -> connector(node, child) && child ∉ done, kwargs...)
 		union!(done, batch)
@@ -81,11 +80,11 @@ end
 		@test collect(leafbatches(collider; eltype = Trace)) == [[(2, 1), (1, 2)], [(2,), (1,)], [()]]
 		@test batches(leafbatches(collider.children...)) == [["Collider", "Loner"], ["Go right", "Go left"]]
 
-		@test batches(leafbatches_marking(collider; done = Set{Any}([collider.children[1]]))) == [["Collider"], ["Go right"], ["The top"]]
+		@test batches(leafbatches_markingdone(collider; done = Set{Any}([collider.children[1]]))) == [["Collider"], ["Go right"], ["The top"]]
 
 		@test eltype(leafbatches(collider)) == Vector{Any}
 		@test collect(leafbatches(cycle)) == [[nothing]]
-		@test length(collect(leafbatches(deepdag))) == 20002 # the nothings, then one batch per level of the chain
+		@test length(collect(leafbatches(deepdag))) == 20002
 	end
 
 	@testset "traces" begin
@@ -143,8 +142,8 @@ end
 
 	@testset "Every pathset gives the same length in every iterator" begin
 		x = Taproot("X", [Taproot("Y", Taproot[])])
-		shortcut = Taproot("R", [Taproot("A", [Taproot("B", [x])]), x]) # X sits at two different depths
-		for taproot in (fast_examples..., shortcut), pathset in (AllPaths, NoCycles, OncePerEdge, OncePerNode)
+		x_at_two_depths = Taproot("R", [Taproot("A", [Taproot("B", [x])]), x])
+		for taproot in (fast_examples..., x_at_two_depths), pathset in (AllPaths, NoCycles, OncePerEdge, OncePerNode)
 			lengths = [length(collect(iter(taproot; pathset))) for iter in (preorder, postorder, topdown, bottomup)]
 			@test allequal(lengths)
 		end
@@ -159,7 +158,6 @@ end
 	@test map(n -> n.data, collect(topdown(shortcut; pathset = NoCycles))) == ["R", "A", "X", "B", "Y", "X", "Y"]
 end
 
-# The algorithm leafbatches is defined by: repeatedly take the leaves, ignoring the ones already taken
 function naive_leafbatches(root; connector = (node, child) -> true, pathset = OncePerNode)
 	done = Set()
 	batches = []
@@ -176,7 +174,7 @@ end
 	samebatch(a, b) = length(a) == length(b) && Set(a) == Set(b)
 	connectors = ((node, child) -> true, (node, child) -> !(child isa String), (node, child) -> child != final_collider)
 	for taproot in fast_examples, pathset in (OncePerNode, AllPaths), connector in connectors
-		ours = leafbatches_marking(taproot; pathset, connector)
+		ours = leafbatches_markingdone(taproot; pathset, connector)
 		theirs = naive_leafbatches(taproot; pathset, connector)
 		@test length(ours) == length(theirs) && all(samebatch.(ours, theirs))
 		@test reduce(vcat, ours; init = Any[]) == collect(bottomup(taproot; pathset, connector))
@@ -186,32 +184,39 @@ end
 @testset "leafbatches waits for the connector to let go" begin
 	y = Taproot("Y", Taproot[]); x = Taproot("X", [y]); z = Taproot("Z", Taproot[])
 	r = Taproot("R", [x, z])
-	done = Set{Taproot}()
 	names = batch -> map(n -> n.data, batch)
-	walk = leafbatches(r; connector = (node, child) -> child ∉ done)
-	batch, state = iterate(walk)
-	@test names(batch) == ["Z", "Y"]
-	push!(done, z) # Y is still being processed
-	batch, state = iterate(walk, state)
-	@test isempty(batch) # nothing new is a leaf yet
-	batch, state = iterate(walk, state)
-	@test isempty(batch)
-	push!(done, y)
-	batch, state = iterate(walk, state)
-	@test names(batch) == ["X"]
-	push!(done, x)
-	batch, state = iterate(walk, state)
-	@test names(batch) == ["R"]
-	@test iterate(walk, state) === nothing
 
-	empty!(done); push!(done, z) # already done before the walk: never mapped
-	@test map(names, leafbatches_marking(r; done)) == [["Y"], ["X"], ["R"]]
-	@test map(names, collect(leafbatches(r))) == [["Z", "Y"], ["X"], ["R"]] # no connector: yielded is enough
+	@testset "a parent waits until its children are done" begin
+		done = Set{Taproot}()
+		walk = leafbatches(r; connector = (node, child) -> child ∉ done)
+		batch, state = iterate(walk)
+		@test names(batch) == ["Z", "Y"]
+		push!(done, z)
+		batch, state = iterate(walk, state)
+		@test isempty(batch)
+		batch, state = iterate(walk, state)
+		@test isempty(batch)
+		push!(done, y)
+		batch, state = iterate(walk, state)
+		@test names(batch) == ["X"]
+		push!(done, x)
+		batch, state = iterate(walk, state)
+		@test names(batch) == ["R"]
+		@test iterate(walk, state) === nothing
+	end
+
+	@testset "children done before the walk are never yielded" begin
+		@test map(names, leafbatches_markingdone(r; done = Set{Any}([z]))) == [["Y"], ["X"], ["R"]]
+	end
+
+	@testset "without a connector, a child lets go once it is yielded" begin
+		@test map(names, collect(leafbatches(r))) == [["Z", "Y"], ["X"], ["R"]]
+	end
 end
 
 @testset "bottomup and leafbatches visit shared nodes once, not once per path" begin
 	layer = [Taproot(i, Taproot[]) for i in 1:2]
-	for _ in 1:40 # 2^40 paths from the root to each leaf
+	for _ in 1:40
 		layer = [Taproot(i, copy(layer)) for i in 1:2]
 	end
 	lattice = Taproot("Root", layer)
@@ -236,7 +241,7 @@ end
 				value = i
 				if i > 10000 break end
 			end 
-			@test 0 <= value <= 100 # 0 allowed for bottomup where there are no leaves
+			@test 0 <= value <= 100
 		end
 		@test length(collect(leafbatches(cycle; pathset = AllPaths))) <= 100
 	end

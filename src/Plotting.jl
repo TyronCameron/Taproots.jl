@@ -1,7 +1,6 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Plotting
 #─────────────────────────────────────────────────────────────────────────────#
-    # Stubs for the Plots.jl extension (loaded with `using Plots, GraphRecipes`)
 
 """
     plotdag(taproot; kwargs...)

@@ -1,5 +1,8 @@
 module TaprootPlots
-using Taproots, RecipesBase, GraphRecipes, Plots
+using Taproots: Taproots, topdown, bottomup
+using RecipesBase: @recipe
+using GraphRecipes: GraphRecipes
+using Plots: Plots
 import Taproots: plotdag, plotdag!, plottree, plottree!
 
 struct PlotTree
@@ -17,7 +20,11 @@ plotdag!(args...; kwargs...) = Plots.plot!(PlotDag(args); kwargs...)
 plottree!(p::Plots.AbstractPlot, args...; kwargs...) = Plots.plot!(p, PlotTree(args); kwargs...)
 plotdag!(p::Plots.AbstractPlot, args...; kwargs...) = Plots.plot!(p, PlotDag(args); kwargs...)
 
-# Each node once, numbered in topdown order, with an edge from every parent to each child
+"""
+    dagparts(roots)
+
+Each node once, numbered in topdown order, with an adjacency matrix holding an edge from every parent to each child.
+"""
 function dagparts(roots)
     nodes = collect(topdown(roots...))
     index = Dict(node => i for (i, node) in enumerate(nodes))
@@ -28,10 +35,14 @@ function dagparts(roots)
     return nodes, index, adj
 end
 
-# A node's layer is its longest path from a root, so every arrow points down
+"""
+    dagdepths(roots, index, adj)
+
+Each node's layer: its longest path from a root, so every arrow points down.
+"""
 function dagdepths(roots, index, adj)
     depth = zeros(Int, size(adj, 1))
-    for node in Iterators.reverse(collect(bottomup(roots...))) # parents before children
+    for node in Iterators.reverse(collect(bottomup(roots...)))
         i = index[node]
         for j in findall(!iszero, adj[i, :])
             depth[j] = max(depth[j], depth[i] + 1)
@@ -40,7 +51,11 @@ function dagdepths(roots, index, adj)
     return depth
 end
 
-# Orders each layer by the mean position of its neighbours (a few up and down sweeps to untangle crossings)
+"""
+    daglayout(depth, adj)
+
+Orders each layer by the mean position of its neighbours, with a few up and down sweeps to untangle crossings.
+"""
 function daglayout(depth, adj)
     layers = [findall(==(d), depth) for d in 0:maximum(depth)]
     rank = zeros(Float64, length(depth))

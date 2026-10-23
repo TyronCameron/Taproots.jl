@@ -1,9 +1,7 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Functionals
 #─────────────────────────────────────────────────────────────────────────────#
-    # This file contains ways of mapping, filtering and accumulating Taproots 
 
-# One day will be moved to reconstruct(x)
 function _copy_or_reconstruct(x)
     if hasmethod(copy, Tuple{typeof(x)})
         return copy(x)
@@ -16,9 +14,8 @@ function _copy_or_reconstruct(x)
     elseif x isa Symbol
         return x
     elseif ismutable(x)
-        fieldvals = getfield.(Ref(x), 1:fieldcount(typeof(x)))
         try
-            return typeof(x)(fieldvals...)
+            return typeof(x)(ntuple(i -> getfield(x, i), fieldcount(typeof(x)))...)
         catch
             @warn """
                 No public constructor for $(typeof(x)); using Base.unsafe_copy as fallback.
@@ -33,9 +30,9 @@ function _copy_or_reconstruct(x)
 end
 
 function _applyif!(condition, f, node, visited)
-    if ismutable(node) && node ∈ visited return node end # don't do the same thing to a mutable struct twice
+    if ismutable(node) && node ∈ visited return node end
     push!(visited, node)
-    return condition(node) ? setdata!(node, f(data(node))) : node # conditionally apply f
+    return condition(node) ? setdata!(node, f(data(node))) : node
 end
 
 function maphelper!(condition, f, taproot)

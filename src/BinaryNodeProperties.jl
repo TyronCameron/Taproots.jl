@@ -1,7 +1,6 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Binary Node Properties
 #─────────────────────────────────────────────────────────────────────────────#
-    # Contains traits / properties to check relationships between different items
 
 
 """

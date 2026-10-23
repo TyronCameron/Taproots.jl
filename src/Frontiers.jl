@@ -2,14 +2,6 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Frontiers
 #─────────────────────────────────────────────────────────────────────────────#
-    # A Frontier is an incremental way of getting the "next" nodes.
-    # Frontiers are parametrized by the concrete shoot type they store, so that
-    # walks stay type stable. It must implement the following:
-        # A constructor (aligns 1 to 1 with WalkOrder so not really important to define the mapping here)
-        # put!(frontier, shoot) -- puts this into the queue so that it will be seen next
-        # take!(frontier, shoot) -- pulls the next shoot out of the queue
-        # peek(frontier) -- see what is next in the queue without popping it
-        # isempty(frontier) -- check to see if there is anything next
 
 abstract type WalkOrder end
 struct Preorder <: WalkOrder end
@@ -18,6 +10,17 @@ struct Topdown <: WalkOrder end
 struct Bottomup <: WalkOrder end
 struct Leafbatches <: WalkOrder end
 
+"""
+    Frontier
+
+An incremental way of getting the next shoots of a walk, with one frontier per `WalkOrder`.
+Each frontier is parametrised by the concrete shoot type it stores, so walks stay type stable, and implements:
+
+- `put!(frontier, shoot)`: queue `shoot` so that it will be seen next
+- `take!(frontier)`: pull the next shoot out of the queue
+- `peek(frontier)`: see what is next without removing it
+- `isempty(frontier)`: whether anything is left
+"""
 abstract type Frontier end
 
 # Stack for Preorder
@@ -53,9 +56,13 @@ Base.isempty(frontier::PostorderStackFrontier) = isempty(frontier.next)
 
 # Minimal Queue
 #─────────────────────────────────────────────────────────────────────────────
-    # The queue never forgets a sprout, so `parent[k]` (the index of the sprout
-    # that queued sprout k, 0 for the root) lets us walk any sprout's ancestors.
 
+"""
+    QueueFrontier
+
+The first-in first-out queue for `Topdown`. It never forgets a sprout: `parent[k]` is the index of the sprout that queued sprout `k` (0 for the root),
+so `isancestor` can walk the ancestors of any sprout.
+"""
 mutable struct QueueFrontier{S} <: Frontier
     next::Vector{S}
     parent::Vector{Int}
@@ -76,8 +83,12 @@ end
 peek(frontier::QueueFrontier) = frontier.next[frontier.currentidx]
 Base.isempty(frontier::QueueFrontier) = frontier.currentidx > length(frontier.next)
 
-# Is `node` one of the ancestors of the sprout just taken?
-function onpath(frontier::QueueFrontier, node)
+"""
+    isancestor(frontier::QueueFrontier, node)
+
+Whether `node` is an ancestor of the sprout taken last.
+"""
+function isancestor(frontier::QueueFrontier, node)
     k = frontier.parent[frontier.currentidx - 1]
     while k != 0
         isequal(nodeof(frontier.next[k]), node) && return true
@@ -89,44 +100,46 @@ end
 
 # Bottomup Frontier
 #─────────────────────────────────────────────────────────────────────────────
-    # Holds every sprout of the taproot, mapped up front in one preorder pass.
-    # The pathset decides what a sprout is: one cycle-free path from the root
-    # (AllPaths, NoCycles, OncePerEdge) or one whole node (OncePerNode). The queue
-    # works purely on indices into that vector. Each sprout keeps a linked list of
-    # edges up to the sprouts waiting on it: `firstparent[k]` is its first edge (0
-    # for none), `edgeparent[e]` is where edge `e` leads and `nextedge[e]` is the
-    # next edge in the same list. `pending[k]` counts what sprout k still waits on
-    # (its connected children); a sprout enters the queue exactly once, when its
-    # count reaches zero (Kahn's algorithm). Cycles never reach zero, so they are
-    # abandoned. A taken sprout normally lets go of its parents straight away;
-    # leafbatches can instead hold them in `waiting` until the connector lets go.
 
+"""
+    BottomupFrontier
+
+Holds every sprout of the taproot, mapped up front in one preorder pass by `mapsprout!`.
+The pathset decides what a sprout is: one cycle-free path from the root, or (when walking `OncePerNode`) a whole node.
+The queue works purely on indices into `states`. Each sprout keeps a linked list of edges up to the sprouts waiting on it:
+`firstparent[k]` is its first edge (0 for none), `edgeparent[e]` is where edge `e` leads, `nextedge[e]` is the next edge in the same list,
+and `byconnector[e]` is whether the edge stands for a connected child, which the `connector` may keep holding.
+`pending[k]` counts what sprout `k` still waits on; a sprout enters the queue exactly once, when its count reaches zero (Kahn's algorithm).
+Children on cycle edges never become sprouts but still count towards `pending`, so cycles never reach zero and are abandoned.
+Sprouts taken with `hold` wait in `waiting` until `recheck!` lets go of them.
+"""
 mutable struct BottomupFrontier{S} <: Frontier
     states::Vector{S}
     pending::Vector{Int}
     firstparent::Vector{Int}
     edgeparent::Vector{Int}
     nextedge::Vector{Int}
+    byconnector::Vector{Bool}
     queue::Vector{Int}
     currentidx::Int
     waiting::Vector{Int}
 end
 
 function BottomupFrontier{S}(children, connector, pathset, root; sizeguess = 256) where S
-    frontier = BottomupFrontier{S}(sizehint!(S[], sizeguess), sizehint!(Int[], sizeguess), sizehint!(Int[], sizeguess), sizehint!(Int[], sizeguess), sizehint!(Int[], sizeguess), sizehint!(Int[], sizeguess), 1, Int[])
+    frontier = BottomupFrontier{S}(sizehint!(S[], sizeguess), sizehint!(Int[], sizeguess), sizehint!(Int[], sizeguess), sizehint!(Int[], sizeguess), sizehint!(Int[], sizeguess), sizehint!(Bool[], sizeguess), sizehint!(Int[], sizeguess), 1, Int[])
     seen = initmapping(pathset, nodetypeof(S); sizeguess)
-    stack = [(initsprout(S, root), 0)] # each sprout with the index of the sprout waiting on it
-    while !isempty(stack)
-        sprout, parent = pop!(stack)
+    unmapped = [(initsprout(S, root), 0)]
+    while !isempty(unmapped)
+        sprout, parent = pop!(unmapped)
         k, expand = mapsprout!(frontier, seen, sprout)
-        if k == 0 continue end # a cycle edge: its parent waits on it forever
+        if k == 0 continue end
         if parent != 0 addedge!(frontier, k, parent) end
         if !expand continue end
         node = nodeof(sprout)
         for (i, child) in enumerate(children(node))
             if !connector(node, child) continue end
             frontier.pending[k] += 1
-            push!(stack, (putsprout(sprout, child, i), k))
+            push!(unmapped, (putsprout(sprout, child, i), k))
         end
     end
     for (k, count) in enumerate(frontier.pending)
@@ -142,16 +155,36 @@ function newsprout!(frontier::BottomupFrontier, sprout)
     return length(frontier.states)
 end
 
-function addedge!(frontier::BottomupFrontier, child::Int, parent::Int)
+function addedge!(frontier::BottomupFrontier, child::Int, parent::Int, byconnector::Bool = true)
     push!(frontier.edgeparent, parent)
     push!(frontier.nextedge, frontier.firstparent[child])
+    push!(frontier.byconnector, byconnector)
     frontier.firstparent[child] = length(frontier.edgeparent)
 end
 
-# `mapsprout!(frontier, seen, sprout)` gives the sprout's index (0 to cut it) and whether to map its children.
+"""
+    FirstSprouts{P, N}
 
-# AllPaths and NoCycles: every cycle-free path is its own sprout.
+The index of the first sprout mapped for each node, when walking `OncePerNode` or `OncePerEdge`.
+"""
+struct FirstSprouts{P <: PathSet, N}
+    index::Dict{N, Int}
+end
+
 initmapping(::Type{<:PathSet}, ::Type{N}; sizeguess = 256) where N = initpathset(NoCycles, N)
+initmapping(::Type{<:OncePerNode}, ::Type{N}; sizeguess = 256) where N = FirstSprouts{OncePerNode, N}(sizehint!(Dict{N, Int}(), sizeguess))
+initmapping(::Type{<:OncePerEdge}, ::Type{N}; sizeguess = 256) where N = FirstSprouts{OncePerEdge, N}(sizehint!(Dict{N, Int}(), sizeguess))
+
+"""
+    mapsprout!(frontier::BottomupFrontier, seen, sprout)
+
+Maps `sprout` into `frontier`, returning its index (0 when it would close a cycle) and whether to map its children too.
+`seen = initmapping(pathset, N)` decides what a sprout is:
+
+- `AllPaths` and `NoCycles`: every cycle-free path is its own sprout.
+- `OncePerNode`: every node is one sprout, waited on by all of its parents.
+- `OncePerEdge`: a node is a sprout once per edge into it, but only its first sprout maps its children. The later ones wait on the first, so they stay above everything below it.
+"""
 function mapsprout!(frontier::BottomupFrontier, seen::NoCycles, sprout)
     node, level = nodeof(sprout), levelof(sprout)
     if !visitnode(seen, node, level) return 0, false end
@@ -159,21 +192,12 @@ function mapsprout!(frontier::BottomupFrontier, seen::NoCycles, sprout)
     return newsprout!(frontier, sprout), true
 end
 
-# OncePerNode and OncePerEdge remember the first sprout of every node.
-struct FirstSprouts{P <: PathSet, N}
-    index::Dict{N, Int}
-end
-initmapping(::Type{P}, ::Type{N}; sizeguess = 256) where {P <: Union{OncePerNode, OncePerEdge}, N} = FirstSprouts{P <: OncePerNode ? OncePerNode : OncePerEdge, N}(sizehint!(Dict{N, Int}(), sizeguess))
-
-# OncePerNode: every node is one sprout, waited on by all of its parents.
 function mapsprout!(frontier::BottomupFrontier, seen::FirstSprouts{OncePerNode}, sprout)
     n = length(frontier.states)
     k = get!(() -> newsprout!(frontier, sprout), seen.index, nodeof(sprout))
     return k, k > n
 end
 
-# OncePerEdge: a node is a sprout once per edge into it, but only its first sprout maps its children.
-# The later ones wait on the first (through a negative edge), so they stay above everything below it.
 function mapsprout!(frontier::BottomupFrontier, seen::FirstSprouts{OncePerEdge}, sprout)
     first = get(seen.index, nodeof(sprout), 0)
     k = newsprout!(frontier, sprout)
@@ -181,27 +205,35 @@ function mapsprout!(frontier::BottomupFrontier, seen::FirstSprouts{OncePerEdge},
         seen.index[nodeof(sprout)] = k
         return k, true
     end
-    addedge!(frontier, first, -k) # negative: not a real edge, so no connector to wait on
+    addedge!(frontier, first, k, false)
     frontier.pending[k] = 1
     return k, false
 end
 
 put!(frontier::BottomupFrontier, k::Int) = push!(frontier.queue, k)
 
-# Taking a sprout brings each of its parents one child closer to ready.
-# Holding it instead parks it in `waiting`, for `recheck!` to let go of later.
+"""
+    take!(frontier::BottomupFrontier, hold = false)
+
+Takes the next ready sprout, bringing each sprout waiting on it one step closer to ready.
+With `hold`, it keeps its edges until `recheck!` finds the connector has let go of them.
+"""
 function take!(frontier::BottomupFrontier, hold::Bool = false)
     k = frontier.queue[frontier.currentidx]
     frontier.currentidx += 1
-    if hold
-        if frontier.firstparent[k] != 0 push!(frontier.waiting, k) end
-    else
-        letgo!(parent -> false, frontier, k)
+    if !hold
+        letgo!(Returns(false), frontier, k)
+    elseif hasparents(frontier, k)
+        push!(frontier.waiting, k)
     end
     return frontier.states[k]
 end
 
-# Lets go of every held edge the connector no longer connects, keeping the rest waiting.
+"""
+    recheck!(frontier::BottomupFrontier, connector)
+
+Lets go of every held edge that the `connector` no longer connects. Sprouts with edges still held keep waiting.
+"""
 function recheck!(frontier::BottomupFrontier, connector)
     kept = 0
     for k in frontier.waiting
@@ -213,24 +245,33 @@ function recheck!(frontier::BottomupFrontier, connector)
     resize!(frontier.waiting, kept)
 end
 
-# Unlinks each of sprout k's edges unless `holds(parent)`, releasing that parent once it waits on nothing else.
-# Returns whether any edges are still held.
+"""
+    letgo!(holds, frontier::BottomupFrontier, k)
+
+Unlinks each of sprout `k`'s edges, except connected children for which `holds(parent)`, and releases every parent left waiting on nothing.
+Returns whether any of `k`'s edges are still held.
+"""
 function letgo!(holds, frontier::BottomupFrontier, k::Int)
     previous, edge = 0, frontier.firstparent[k]
     while edge != 0
         next = frontier.nextedge[edge]
         parent = frontier.edgeparent[edge]
-        if parent > 0 && holds(parent)
+        if frontier.byconnector[edge] && holds(parent)
             previous = edge
         else
-            parent = abs(parent)
-            frontier.pending[parent] -= 1
-            if frontier.pending[parent] == 0 put!(frontier, parent) end
+            release!(frontier, parent)
             if previous == 0 frontier.firstparent[k] = next else frontier.nextedge[previous] = next end
         end
         edge = next
     end
-    return frontier.firstparent[k] != 0
+    return hasparents(frontier, k)
+end
+
+hasparents(frontier::BottomupFrontier, k::Int) = frontier.firstparent[k] != 0
+
+function release!(frontier::BottomupFrontier, k::Int)
+    frontier.pending[k] -= 1
+    if frontier.pending[k] == 0 put!(frontier, k) end
 end
 
 peek(frontier::BottomupFrontier) = frontier.states[frontier.queue[frontier.currentidx]]
