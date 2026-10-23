@@ -1,7 +1,6 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Shoots
 #─────────────────────────────────────────────────────────────────────────────#
-    # Information about nodes as we're iterating through them.
 
 """
     Shoot
@@ -31,31 +30,30 @@ Selects levels only when iterating. For use in iterator functions such `preorder
 """
 struct Level <: Shoot end
 
-# WholeSprout is internal: it selects the sprout itself, wrapping the shoots the
-# caller asked for. It lets the bottomup mapping pass reuse the preorder walk.
+"""
+    WholeSprout(shoots)
+
+Selects the sprout itself, wrapping the `shoots` the caller asked for, so that the bottomup mapping pass can reuse the preorder walk.
+"""
 struct WholeSprout{S} <: Shoot
     shoots::S
 end
 
-# Standardisation
 standardisedshoot(::Type{S}) where {S <: Shoot} = S()
 standardisedshoot(shoots::Tuple) = map(standardisedshoot, shoots)
 
-# Separation of traces
 hastrace(::Node) = false
 hastrace(::Level) = false
 hastrace(::Trace) = true
 hastrace(shoots::Tuple) = any(hastrace, shoots)
 hastrace(w::WholeSprout) = hastrace(w.shoots)
 
-# TraceLinks 
 struct TraceLinks
     i::Int
     parent::Union{Tuple{}, TraceLinks}
 end
 const TraceState = Union{Tuple{}, TraceLinks}
 
-# Convert TraceLinks back to tuple 
 totuple(trace::Tuple) = trace
 function totuple(trace::TraceLinks)
     depth = 0
@@ -64,22 +62,25 @@ function totuple(trace::TraceLinks)
         depth += 1
         link = link.parent
     end
-    indices = Vector{Int}(undef, depth) # filled back to front, root-most index first
+    indices = Vector{Int}(undef, depth)
     link = trace
     while link isa TraceLinks
         indices[depth] = link.i
         depth -= 1
         link = link.parent
     end
-    return ntuple(i -> @inbounds(indices[i]), length(indices)) # much faster than Tuple(::Vector) for shallow traces
+    return ntuple(i -> @inbounds(indices[i]), length(indices))
 end
 
 #─────────────────────────────────────────────────────────────────────────────#
 # Sprouts
 #─────────────────────────────────────────────────────────────────────────────#
-    # Sprout is the traceless variant; 
-    # TracedSprout additionally carries the path of child indices. 
 
+"""
+    AbstractSprout
+
+A node held by a walk, together with its level. `Sprout` is the traceless variant; `TracedSprout` additionally carries the path of child indices.
+"""
 abstract type AbstractSprout end 
 
 struct Sprout{N} <: AbstractSprout

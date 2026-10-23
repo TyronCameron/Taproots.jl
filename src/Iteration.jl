@@ -1,7 +1,6 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Iteration
 #─────────────────────────────────────────────────────────────────────────────#
-    # The core iteration functions
 
 
 ## Public facing API
@@ -194,11 +193,11 @@ Base.@constprop :aggressive tracepairs(args...; kwargs...) = preorder(args...; k
 
 alwaysconnect(node, child) = true
 
-Base.@constprop :aggressive function standardised_iterate_taproot(walk_order::Type{<:WalkOrder}, taproot, taproots...; kwargs...) # no children function
+Base.@constprop :aggressive function standardised_iterate_taproot(walk_order::Type{<:WalkOrder}, taproot, taproots...; kwargs...)
     standardised_iterate_taproot(walk_order, children, taproot, taproots...; kwargs...)
 end
 
-Base.@constprop :aggressive function standardised_iterate_taproot( # Allow passing the `children` function
+Base.@constprop :aggressive function standardised_iterate_taproot(
     walk_order::Type{<:WalkOrder},
     children::Union{Function, Type},
     taproot,
@@ -220,24 +219,31 @@ Base.@constprop :aggressive function standardised_iterate_taproot( # Allow passi
     )
 end
 
-# A preorder walk keeping only the nodes for which `keep(children, node; connector)` holds.
-# The node rides along with the requested shoots, so any `eltype` works.
+"""
+    filterwalk(keep, [children], taproots...; kwargs...)
+
+A preorder walk keeping only the nodes for which `keep(children, node; connector)` holds.
+The node rides along with the requested shoots, so any `eltype` works.
+"""
 Base.@constprop :aggressive filterwalk(keep, taproot, taproots...; kwargs...) = filterwalk(keep, children, taproot, taproots...; kwargs...)
 Base.@constprop :aggressive function filterwalk(keep, children::Union{Function, Type}, taproot, taproots...; connector = alwaysconnect, eltype = Node, kwargs...)
     walk = preorder(children, taproot, taproots...; connector, eltype = (Node, eltype), kwargs...)
     return (shoot for (node, shoot) in walk if keep(children, node; connector))
 end
 
-# For a set of Taproots, I think just create a single parent which has all the listed taproots as children
-# That way, all nodes are iterated over in the correct order, even bottomup and topdown
-# The MultiTaproot just can't be part of the final result
+"""
+    MultiTaproot(children)
+
+A synthetic parent of several taproots, so that walking it visits all of their nodes in the correct order, even bottomup and topdown.
+It is never yielded itself.
+"""
 struct MultiTaproot{T}
     children::T
 end
 children(x::MultiTaproot) = x.children
 
-shouldyield(shoots, node) = !(node isa MultiTaproot) # single-root walks: constant-folds to true
-shouldyield(::WholeSprout, node) = true # the bottomup mapping pass needs every sprout, incl. the synthetic multi-root parent
+shouldyield(shoots, node) = !(node isa MultiTaproot)
+shouldyield(::WholeSprout, node) = true
 
 Base.@constprop :aggressive function iterate_multi_taproot(
     walk_order,
@@ -258,26 +264,31 @@ end
 
 ## Typed walk construction
 ##────────────────────────────────────────────────────────────────────────────#
-    # A Walk is a lightweight coroutine. `walk!` runs a walk's while loop until it
-    # hits `@yield`, which parks the current sprout and the yielded value in the
-    # Walk and returns. The next `walk!` call starts with `@resume`, which jumps
-    # straight back to just after that `@yield`, so the loop carries on exactly
-    # where it left off. Every field is concretely typed, so walks are type stable
-    # and yielding a tuple or struct never allocates.
 
 const FRESH = 0x00
 const SUSPENDED = 0x01
 const FINISHED = 0x02
 
+"""
+    Walk
+
+A lightweight coroutine. `walk!` runs a walk's loop until it hits `@yield`, which parks the current sprout and the yielded value in the `Walk` and returns.
+The next `walk!` call starts with `@resume`, which jumps straight back to just after that `@yield`, so the loop carries on exactly where it left off.
+Every field is concretely typed, so walks are type stable and yielding a tuple or struct never allocates.
+
+- `sprout`: the sprout held at the last `@yield`, the only local still needed after a yield
+- `value`: the last yielded value
+- `state`: `FRESH`, `SUSPENDED` or `FINISHED`
+"""
 mutable struct Walk{O <: WalkOrder, T, F, P, Sh, C, K, S}
     frontier::F
     pathset::P
     shoots::Sh
     children::C
     connector::K
-    sprout::S # the sprout held at the last @yield: the only local still needed after a yield
-    value::T # the last yielded value
-    state::UInt8 # FRESH, SUSPENDED or FINISHED
+    sprout::S
+    value::T
+    state::UInt8
     function Walk{O, T}(frontier::F, pathset::P, shoots::Sh, children::C, connector::K, sprout::S) where {O, T, F, P, Sh, C, K, S}
         walker = new{O, T, F, P, Sh, C, K, S}(frontier, pathset, shoots, children, connector, sprout)
         walker.state = FRESH
@@ -302,9 +313,12 @@ end
 walkparts(walker::Walk) = (walker.frontier, walker.pathset, walker.shoots, walker.children, walker.connector)
 finish!(walker::Walk) = (walker.state = FINISHED; false)
 
-# Inside `walk!(walker, sink)`: hand `value` out of the walk, remembering `sprout`.
-# The matching `@resume` jumps back to the label right after this.
-# With a `sink`, the walk runs eagerly instead: `value` goes to `sink` and the loop carries on.
+"""
+    @yield value
+
+Inside `walk!(walker, sink)`: hands `value` out of the walk, remembering `sprout`. The matching `@resume` jumps back to the label right after this.
+With a `sink`, the walk runs eagerly instead: `value` goes to `sink` and the loop carries on.
+"""
 macro yield(value)
     esc(quote
         if sink === nothing
@@ -319,7 +333,11 @@ macro yield(value)
     end)
 end
 
-# First line of `walk!(walker)`: carry on from the last `@yield`, if there was one.
+"""
+    @resume walker
+
+The first line of `walk!(walker)`: carries on from the last `@yield`, if there was one.
+"""
 macro resume(walker)
     esc(quote
         $walker.state === $FINISHED && return false
@@ -346,7 +364,7 @@ initfrontier(::Type{Preorder}, ::Type{S}, shoots, children, connector, pathset, 
 initfrontier(::Type{Postorder}, ::Type{S}, shoots, children, connector, pathset, root, sizeguess = 8) where S = PostorderStackFrontier{S}(firstsprout(S, shoots, root), sizehint!([false], sizeguess))
 initfrontier(::Type{Topdown}, ::Type{S}, shoots, children, connector, pathset, root, sizeguess = 8) where S = QueueFrontier{S}(firstsprout(S, shoots, root), 1)
 function initfrontier(::Type{Bottomup}, ::Type{S}, shoots, children, connector, ::Type{P}, root, sizeguess = 8) where {S, P}
-    mappath = P <: OncePerNode ? OncePerNode : NoCycles # map whole nodes when we can: far fewer sprouts than paths in a DAG
+    mappath = P <: OncePerNode ? OncePerNode : NoCycles
     premap = buildwalk(Preorder, WholeSprout(shoots), children, connector, mappath, root; sizeguess)
     return BottomupFrontier(collect(premap), children, connector, mappath)
 end
@@ -428,7 +446,7 @@ function walk!(walker::Walk{Bottomup}, sink = nothing)
     frontier, pathset, shoots, children, connector = walkparts(walker)
     @resume walker
     while !isempty(frontier)
-        sprout = take!(frontier) # only taken once all of this sprout's children were taken
+        sprout = take!(frontier)
         node = nodeof(sprout)
         should_visit_node = visitnode(pathset, node, levelof(sprout))
         tracknode!(pathset, node, levelof(sprout))
@@ -441,11 +459,10 @@ function walk!(walker::Walk{Bottomup}, sink = nothing)
 end
 
 ### Leafbatches
-    # The bottomup queue already runs in batches: every sprout released while taking
-    # one batch queues up behind it. So a batch is whatever was ready when it began.
 
 function walk!(walker::Walk{Leafbatches, Vector{T}}, sink = nothing) where T
     frontier, pathset, shoots, children, connector = walkparts(walker)
+    sprout = walker.sprout
     @resume walker
     while !isempty(frontier)
         batch = T[]
@@ -456,7 +473,7 @@ function walk!(walker::Walk{Leafbatches, Vector{T}}, sink = nothing) where T
             tracknode!(pathset, node, levelof(sprout))
             if should_visit_node && shouldyield(shoots, node) push!(batch, takeshoot(shoots, sprout)) end
         end
-        if !isempty(batch) # only the synthetic multi-root parent makes a batch of nothing
+        if !isempty(batch)
             @yield batch
         end
     end

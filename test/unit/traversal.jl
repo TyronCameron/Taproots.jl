@@ -76,7 +76,7 @@ iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)
 
 		@test eltype(leafbatches(collider)) == Vector{Any}
 		@test collect(leafbatches(cycle)) == [[nothing]]
-		@test length(collect(leafbatches(deepdag))) == 20002 # the nothings, then one batch per level of the chain
+		@test length(collect(leafbatches(deepdag))) == 20002
 	end
 
 	@testset "traces" begin
@@ -133,7 +133,6 @@ end
 	end
 end
 
-# The algorithm leafbatches is defined by: repeatedly take the leaves, ignoring the ones already taken
 function naive_leafbatches(root; connector = (node, child) -> true, pathset = OncePerNode)
 	done = Set()
 	batches = []
@@ -159,7 +158,7 @@ end
 
 @testset "bottomup and leafbatches visit shared nodes once, not once per path" begin
 	layer = [Taproot(i, Taproot[]) for i in 1:2]
-	for _ in 1:40 # 2^40 paths from the root to each leaf
+	for _ in 1:40
 		layer = [Taproot(i, copy(layer)) for i in 1:2]
 	end
 	lattice = Taproot("Root", layer)
@@ -184,7 +183,7 @@ end
 				value = i
 				if i > 10000 break end
 			end 
-			@test 0 <= value <= 100 # 0 allowed for bottomup where there are no leaves
+			@test 0 <= value <= 100
 		end
 		@test length(collect(leafbatches(cycle; pathset = AllPaths))) <= 100
 	end

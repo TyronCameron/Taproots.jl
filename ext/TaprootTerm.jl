@@ -1,6 +1,6 @@
 module TaprootTerm 
-using Taproots 
-using AbstractTrees
+using Taproots: Taproots, Taproot
+using AbstractTrees: AbstractTrees
 using Term.Trees: Tree 
 export @sprout, bloom, @bloom
 
