@@ -144,12 +144,17 @@ Supports `kwargs` include:
 - `eltype::Union{Type{<:Shoot}, Tuple}`, this determines what each batch holds. Options include: `Node`, `Level`, `Trace`, or combinations such as `(Node, Level, Trace)`
 - `sizeguess::Int = 256`, a guess of how many nodes the taproot holds, used to preallocate internal tracking structures
 
-This creates an eager iterator of batches (vectors) of nodes. The first batch is `leaves(taproots...)`.
-Each later batch holds the nodes whose connected children all sit in earlier batches: the leaves you would get if you plucked off every batch before it.
-Flattening the batches gives exactly `bottomup`, so a node lands in the batch numbered by its height above the leaves.
+This creates an iterator of batches (vectors) of nodes. The first batch is `leaves(taproots...)`.
+Each later batch holds the nodes that have become leaves since: every child they were connected to has been yielded and the `connector` no longer connects it.
+Without a `connector`, a child lets go of its parents as soon as it is yielded, so flattening the batches gives exactly `bottomup`, and a node lands in the batch numbered by its height above the leaves.
+
+The `connector` is read live. The taproot is mapped up front, skipping children the `connector` already disconnects. After that, each yielded child is checked again before every batch until it lets go.
+So with `connector = (node, child) -> !isdone(child)`, a node is only yielded once all of its children are done, however long they take.
+While nothing new is a leaf yet but yielded children are still connected, the batch is empty. Then it's up to you to wait, or break out of the loop.
+A `connector` that never lets go of a child (for example, one that ignores whether it is done) keeps yielding empty batches forever, so `collect` will never return.
 
 Nothing within a batch depends on anything else in that batch, so each batch can be processed in parallel.
-Like `bottomup`, this abandons cycles (and everything above them), and the `connector` is evaluated once per edge, up front.
+Like `bottomup`, this abandons cycles (and everything above them).
 
 # Usage
 ```julia
@@ -447,17 +452,25 @@ end
 ### Leafbatches
     # The bottomup queue already runs in batches: every sprout released while taking
     # one batch queues up behind it. So a batch is whatever was ready when it began.
+    # With a connector, a yielded child holds its parents until the connector lets
+    # go of it, so its parents wait for it to be done, not just yielded.
+    # While nothing is ready yet but children are still held, the batch is empty.
+
+holds(connector) = true
+holds(::typeof(alwaysconnect)) = false # nothing to wait on: a child lets go once it's yielded
 
 function walk!(walker::Walk{Leafbatches, Vector{T}}, sink = nothing) where T
     frontier, pathset, shoots, children, connector = walkparts(walker)
     @resume walker
-    while !isempty(frontier)
+    while !isempty(frontier) || !isempty(frontier.waiting)
+        recheck!(frontier, connector)
         batch = T[]
-        for _ in 1:readycount(frontier)
-            sprout = take!(frontier)
+        ready = readycount(frontier)
+        for _ in 1:ready
+            sprout = take!(frontier, holds(connector))
             if shouldyield(shoots, nodeof(sprout)) push!(batch, takeshoot(shoots, sprout)) end
         end
-        if !isempty(batch) # only the synthetic multi-root parent makes a batch of nothing
+        if !isempty(batch) || ready == 0 # skip a batch of just the synthetic multi-root parent
             @yield batch
         end
     end
