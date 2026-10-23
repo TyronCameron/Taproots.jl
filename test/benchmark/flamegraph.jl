@@ -6,7 +6,6 @@ function profile_test(n, f, example)
             f(example)    
         end
     catch e 
-        #nothing
     end 
 end
 
@@ -19,9 +18,4 @@ end
 
 
 single_flame_graph(:taproots, :preorder_simple_small_tree)
-
-# impl, sit = :taproots, :preorder_simple_small_tree
-# example = get_func(:init, sit)()
-# func = get_func(impl, sit)
-# @report_opt func(example)
 

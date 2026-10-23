@@ -2,7 +2,6 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Abstract API
 #─────────────────────────────────────────────────────────────────────────────#
-    # This file contains the things that the user would normally override
 
 """
     children(node)
@@ -46,7 +45,6 @@ const NODETYPE_MAX_WIDTH = 4
 Gets a type which we believe is the union of all children types (recursively). Gives up after depth 3 and width 4, falling back to Any. 
 """
 childtypes(root) = childtypes(typeof(root), Val(NODETYPE_MAX_DEPTH))
-# Recursing on the remaining depth (rather than looping) lets inference resolve the result at compile time
 childtypes(::Type, ::Val{0}) = Any
 function childtypes(::Type{T}, ::Val{D}) where {T, D}
     (T === Any || unionwidth(T) > NODETYPE_MAX_WIDTH) && return Any

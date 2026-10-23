@@ -31,4 +31,4 @@ include("Functionals.jl")
 
 include("Precompile.jl")
 
-end  # module Taproots
+end

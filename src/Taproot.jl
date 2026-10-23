@@ -2,7 +2,6 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Taproot
 #─────────────────────────────────────────────────────────────────────────────#
-    # Provides a generic Taproot structure as well as sink functions 
 
 """
 A Taproot is a single node that that can contain other Taproots. It can itself be contained in a parent Taproot.

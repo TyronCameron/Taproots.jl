@@ -2,14 +2,6 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Frontiers
 #─────────────────────────────────────────────────────────────────────────────#
-    # A Frontier is an incremental way of getting the "next" nodes.
-    # Frontiers are parametrized by the concrete shoot type they store, so that
-    # walks stay type stable. It must implement the following:
-        # A constructor (aligns 1 to 1 with WalkOrder so not really important to define the mapping here)
-        # put!(frontier, shoot) -- puts this into the queue so that it will be seen next
-        # take!(frontier, shoot) -- pulls the next shoot out of the queue
-        # peek(frontier) -- see what is next in the queue without popping it
-        # isempty(frontier) -- check to see if there is anything next
 
 abstract type WalkOrder end
 struct Preorder <: WalkOrder end
@@ -18,6 +10,17 @@ struct Topdown <: WalkOrder end
 struct Bottomup <: WalkOrder end
 struct Leafbatches <: WalkOrder end
 
+"""
+    Frontier
+
+An incremental way of getting the next shoots of a walk, with one frontier per `WalkOrder`.
+Each frontier is parametrised by the concrete shoot type it stores, so walks stay type stable, and implements:
+
+- `put!(frontier, shoot)`: queue `shoot` so that it will be seen next
+- `take!(frontier)`: pull the next shoot out of the queue
+- `peek(frontier)`: see what is next without removing it
+- `isempty(frontier)`: whether anything is left
+"""
 abstract type Frontier end
 
 # Stack for Preorder
@@ -73,16 +76,16 @@ Base.isempty(frontier::QueueFrontier) = frontier.currentidx > length(frontier.ne
 
 # Bottomup Frontier
 #─────────────────────────────────────────────────────────────────────────────
-    # Holds every sprout of the taproot in preorder. A sprout is either one unique
-    # path from the root, or (when walking OncePerNode) a whole node. The queue
-    # works purely on indices into that vector. Each sprout keeps a linked list of
-    # edges up to its parents: `firstparent[k]` is its first edge (0 for none),
-    # `edgeparent[e]` is where edge `e` leads and `nextedge[e]` is the next edge in
-    # the same list. `pending[k]` counts how many of sprout k's connected children
-    # have not yet been taken; a sprout enters the queue exactly once, when its
-    # count reaches zero (Kahn's algorithm). Cycles never reach zero, so they are
-    # abandoned.
 
+"""
+    BottomupFrontier
+
+Holds every sprout of the taproot in preorder. A sprout is either one unique path from the root, or (when walking `OncePerNode`) a whole node.
+The queue works purely on indices into `states`. Each sprout keeps a linked list of edges up to its parents:
+`firstparent[k]` is its first edge (0 for none), `edgeparent[e]` is where edge `e` leads and `nextedge[e]` is the next edge in the same list.
+`pending[k]` counts how many of sprout `k`'s connected children have not yet been taken; a sprout enters the queue exactly once, when its count reaches zero (Kahn's algorithm).
+Cycles never reach zero, so they are abandoned.
+"""
 mutable struct BottomupFrontier{S} <: Frontier
     states::Vector{S}
     pending::Vector{Int}
@@ -109,8 +112,14 @@ function addedge!(frontier::BottomupFrontier, child::Int, parent::Int)
     frontier.firstparent[child] = length(frontier.edgeparent)
 end
 
-# Sprouts are paths: each has one parent, the latest sprout one level up (preorder guarantees it).
-# Children on cycle edges never became sprouts, but still count towards `pending`.
+"""
+    linkparents!(frontier::BottomupFrontier, pathset, children, connector)
+
+Links each sprout to its parents and counts its pending children.
+When sprouts are paths, each has one parent: the latest sprout one level up, which preorder guarantees.
+Children on cycle edges never became sprouts, but still count towards `pending`.
+With `OncePerNode`, sprouts are whole nodes and each is linked to every parent it has.
+"""
 function linkparents!(frontier::BottomupFrontier, ::Type{<:PathSet}, children, connector)
     ancestors = Int[]
     for (k, sprout) in enumerate(frontier.states)
@@ -123,7 +132,6 @@ function linkparents!(frontier::BottomupFrontier, ::Type{<:PathSet}, children, c
     end
 end
 
-# Sprouts are whole nodes: link each one to every parent it has.
 function linkparents!(frontier::BottomupFrontier, ::Type{<:OncePerNode}, children, connector)
     index = Dict(nodeof(sprout) => k for (k, sprout) in enumerate(frontier.states))
     for (k, sprout) in enumerate(frontier.states)
@@ -138,7 +146,7 @@ end
 
 put!(frontier::BottomupFrontier, k::Int) = push!(frontier.queue, k)
 
-function take!(frontier::BottomupFrontier) # taking a sprout brings each of its parents one child closer to ready
+function take!(frontier::BottomupFrontier)
     k = frontier.queue[frontier.currentidx]
     frontier.currentidx += 1
     edge = frontier.firstparent[k]

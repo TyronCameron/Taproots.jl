@@ -1,10 +1,12 @@
 #─────────────────────────────────────────────────────────────────────────────#
 # Adjacency
 #─────────────────────────────────────────────────────────────────────────────#
-    # This file contains adjacency matrix calculations
-    # TODO: allow these to take multiple taproots at a time
 
-# Shared nodes are repeated once per path, so the result is always a tree (cycles are cut)
+"""
+    treewalk(taproot)
+
+The nodes and traces of `taproot` in topdown order. Shared nodes are repeated once per path, so the result is always a tree (cycles are cut).
+"""
 function treewalk(t)
     walk = collect(topdown(t; pathset = NoCycles, eltype = (Node, Trace)))
     return first.(walk), last.(walk)

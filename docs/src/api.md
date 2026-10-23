@@ -11,6 +11,7 @@ childtypes
 data
 setchildren!
 setdata!
+NotImplementedError
 ```
 
 ### Flags

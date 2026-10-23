@@ -22,13 +22,13 @@ ans = [1,4,9,16,25,36,49,64,81,100,8,27]
 		res = eval(e1)
 
 		@test all(res .== ans)
-		@test occursin("filter", string(cop)) # modifies in place
+		@test occursin("filter", string(cop))
 
 		e2 = leafmap(x -> x == :map ? :filter : x, expr)
 		res = eval(e2)
 
 		@test all(res .== ans)
-		@test !occursin("filter", string(expr)) # does not modify in place
+		@test !occursin("filter", string(expr))
 	end
 
 end
