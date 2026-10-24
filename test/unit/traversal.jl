@@ -71,8 +71,16 @@ iters = (preorder, postorder, topdown, bottomup, traces, tracepairs)
 		@test collect(leafbatches(collider; eltype = Trace)) == [[(2, 1), (1, 2)], [(2,), (1,)], [()]]
 		@test batches(leafbatches(collider.children...)) == [["Collider", "Loner"], ["Go right", "Go left"]]
 
-		done = Set([collider.children[1]])
-		@test batches(leafbatches(collider; connector = (node, child) -> child ∉ done)) == [["Collider"], ["Go right"], ["The top"]]
+		done, previous, live = Set(), [], []
+		for batch in leafbatches(different_heights; connector = (node, child) -> child ∉ done)
+			push!(live, Set(to_compare(batch)))
+			union!(done, previous)
+			previous = batch
+		end
+		@test live == [Set(["B", "Leaf"]), Set(), Set(["A"]), Set(), Set(["Top"])]
+
+		stuck = leafbatches(collider; connector = (node, child) -> true)
+		@test map(length, collect(Iterators.take(stuck, 4))) == [2, 0, 0, 0]
 
 		@test eltype(leafbatches(collider)) == Vector{Any}
 		@test collect(leafbatches(cycle)) == [[nothing]]
@@ -145,14 +153,27 @@ function naive_leafbatches(root; connector = (node, child) -> true, pathset = On
 	end
 end
 
+function driven_leafbatches(root; connector, pathset)
+	done = Set()
+	batches = []
+	for batch in leafbatches(root; pathset, connector = (node, child) -> connector(node, child) && child ∉ done)
+		push!(batches, batch)
+		union!(done, batch)
+	end
+	return batches
+end
+
 @testset "leafbatches agrees with naive leafbatches and bottomup" begin
 	samebatch(a, b) = length(a) == length(b) && Set(a) == Set(b)
+	samebatches(ours, theirs) = length(ours) == length(theirs) && all(samebatch.(ours, theirs))
 	connectors = ((node, child) -> true, (node, child) -> !(child isa String), (node, child) -> child != final_collider)
-	for taproot in fast_examples, pathset in (OncePerNode, AllPaths), connector in connectors
-		ours = collect(leafbatches(taproot; pathset, connector))
-		theirs = naive_leafbatches(taproot; pathset, connector)
-		@test length(ours) == length(theirs) && all(samebatch.(ours, theirs))
-		@test reduce(vcat, ours; init = Any[]) == collect(bottomup(taproot; pathset, connector))
+	for taproot in fast_examples, pathset in (OncePerNode, AllPaths)
+		ours = collect(leafbatches(taproot; pathset))
+		@test samebatches(ours, naive_leafbatches(taproot; pathset))
+		@test reduce(vcat, ours; init = Any[]) == collect(bottomup(taproot; pathset))
+		for connector in connectors
+			@test samebatches(driven_leafbatches(taproot; pathset, connector), naive_leafbatches(taproot; pathset, connector))
+		end
 	end
 end
 
