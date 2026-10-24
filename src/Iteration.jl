@@ -476,15 +476,16 @@ function walk!(walker::Walk{Leafbatches, Vector{T}}, sink = nothing) where T
     sprout = walker.sprout
     @resume walker
     while !isempty(frontier)
-        taken = takebatch!(frontier)
+        ready = readybatch!(frontier)
         batch = T[]
-        for sprout in taken
+        for _ in 1:ready
+            sprout = take!(frontier)
             node = nodeof(sprout)
             should_visit_node = visitnode(pathset, node, levelof(sprout))
             tracknode!(pathset, node, levelof(sprout))
             if should_visit_node && shouldyield(shoots, node) push!(batch, takeshoot(shoots, sprout)) end
         end
-        if isempty(taken) || !isempty(batch)
+        if ready == 0 || !isempty(batch)
             @yield batch
         end
     end
