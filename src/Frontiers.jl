@@ -149,17 +149,81 @@ put!(frontier::BottomupFrontier, k::Int) = push!(frontier.queue, k)
 function take!(frontier::BottomupFrontier)
     k = frontier.queue[frontier.currentidx]
     frontier.currentidx += 1
-    edge = frontier.firstparent[k]
-    while edge != 0
-        parent = frontier.edgeparent[edge]
+    foreachparent(frontier, k) do parent
         frontier.pending[parent] -= 1
         if frontier.pending[parent] == 0 put!(frontier, parent) end
-        edge = frontier.nextedge[edge]
     end
     return frontier.states[k]
 end
 
+function foreachparent(f, frontier::BottomupFrontier, k::Int)
+    edge = frontier.firstparent[k]
+    while edge != 0
+        f(frontier.edgeparent[edge])
+        edge = frontier.nextedge[edge]
+    end
+end
+
 peek(frontier::BottomupFrontier) = frontier.states[frontier.queue[frontier.currentidx]]
 readycount(frontier::BottomupFrontier) = length(frontier.queue) - frontier.currentidx + 1
+readybatch!(frontier::BottomupFrontier) = readycount(frontier)
 
 Base.isempty(frontier::BottomupFrontier) = frontier.currentidx > length(frontier.queue)
+
+
+# Live Frontier for Leafbatches
+#─────────────────────────────────────────────────────────────────────────────
+
+"""
+    LiveFrontier
+
+Holds the same sprouts as `BottomupFrontier`, but asks the `connector` which of them are leaves at every batch, so the `connector` may change its answers between batches.
+`candidates` starts as the leaves. After that, only parents of taken sprouts become candidates, so a walk climbs at most one parent per batch.
+`readybatch!` moves the candidates which are now leaves into `ready`, for `take!` to hand out. The rest stay candidates.
+`reached[k]` makes sure sprout `k` only becomes a candidate once, so it is taken at most once.
+"""
+mutable struct LiveFrontier{S, C, K} <: Frontier
+    sprouts::BottomupFrontier{S}
+    children::C
+    connector::K
+    candidates::Vector{Int}
+    ready::Vector{Int}
+    currentidx::Int
+    reached::Vector{Bool}
+end
+
+function LiveFrontier(sprouts::BottomupFrontier, children, connector)
+    reached = fill(false, length(sprouts.states))
+    reached[sprouts.queue] .= true
+    return LiveFrontier(sprouts, children, connector, copy(sprouts.queue), Int[], 1, reached)
+end
+
+function readybatch!(frontier::LiveFrontier)
+    sprouts, children, connector, candidates = frontier.sprouts, frontier.children, frontier.connector, frontier.candidates
+    empty!(frontier.ready)
+    frontier.currentidx = 1
+    waiting = 0
+    for k in candidates
+        if isleaf(children, nodeof(sprouts.states[k]); connector)
+            push!(frontier.ready, k)
+        else
+            waiting += 1
+            candidates[waiting] = k
+        end
+    end
+    resize!(candidates, waiting)
+    return length(frontier.ready)
+end
+
+function take!(frontier::LiveFrontier)
+    k = frontier.ready[frontier.currentidx]
+    frontier.currentidx += 1
+    foreachparent(frontier.sprouts, k) do parent
+        if frontier.reached[parent] return end
+        frontier.reached[parent] = true
+        push!(frontier.candidates, parent)
+    end
+    return frontier.sprouts.states[k]
+end
+
+Base.isempty(frontier::LiveFrontier) = isempty(frontier.candidates)
