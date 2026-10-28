@@ -281,6 +281,6 @@ Filter  = t -> !(nameof(t) in (
     :ischild, :isparent, :isleaf, :isbranch,
     :preorder, :postorder, :topdown, :bottomup, :leafbatches, :leaves, :branches, :traces, :tracepairs,
     :AllPaths, :NoCycles, :OncePerNode, :OncePerEdge,
-    :Trace, :Level, :Node, :Taproots,
+    :Trace, :Level, :Node, :Taproots, :NotImplementedError,
 ))
 ```
